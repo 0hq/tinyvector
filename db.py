@@ -16,19 +16,27 @@ class SQLiteDatabase:
         # Convert data to bytes using pickle
         embedding_as_bytes = pickle.dumps(embedding)
 
-        cursor = self.conn.execute(
-            "INSERT INTO my_table (text, embedding) VALUES (?, ?)",
-            (text, embedding_as_bytes)
-        )
-        self.conn.commit()
+        try:
+            cursor = self.conn.execute(
+                "INSERT INTO my_table (text, embedding) VALUES (?, ?)",
+                (text, embedding_as_bytes)
+            )
+            self.conn.commit()
+        except sqlite3.Error as e:
+            print(f"Insertion error: {e}")
+            return None
 
         return cursor.lastrowid  # Return the ID of the new record
 
     def get_by_id(self, id):
-        cursor = self.conn.execute(
-            "SELECT * FROM my_table WHERE id = ?",
-            (id,)
-        )
+        try:
+            cursor = self.conn.execute(
+                "SELECT * FROM my_table WHERE id = ?",
+                (id,)
+            )
+        except sqlite3.Error as e:
+            print(f"Selection error: {e}")
+            return None
 
         row = cursor.fetchone()
         if row is None:
@@ -38,7 +46,11 @@ class SQLiteDatabase:
         return self._parse_row(row)
 
     def get_all(self):
-        cursor = self.conn.execute("SELECT * FROM my_table")
+        try:
+            cursor = self.conn.execute("SELECT * FROM my_table")
+        except sqlite3.Error as e:
+            print(f"Selection error: {e}")
+            return None
 
         result = []
         for row in cursor:
@@ -50,20 +62,30 @@ class SQLiteDatabase:
         # Convert data to bytes using pickle
         embedding_as_bytes = pickle.dumps(embedding)
 
-        self.conn.execute(
-            "UPDATE my_table SET text = ?, embedding = ? WHERE id = ?",
-            (text, embedding_as_bytes, id)
-        )
-        self.conn.commit()
+        try:
+            self.conn.execute(
+                "UPDATE my_table SET text = ?, embedding = ? WHERE id = ?",
+                (text, embedding_as_bytes, id)
+            )
+            self.conn.commit()
+        except sqlite3.Error as e:
+            print(f"Update error: {e}")
+            return None
 
         return id  # Return the ID of the updated record
 
     def delete(self, id):
-        self.conn.execute(
-            "DELETE FROM my_table WHERE id = ?",
-            (id,)
-        )
-        self.conn.commit()
+        try:
+            self.conn.execute(
+                "DELETE FROM my_table WHERE id = ?",
+                (id,)
+            )
+            self.conn.commit()
+        except sqlite3.Error as e:
+            print(f"Deletion error: {e}")
+            return False
+
+        return True
 
     def _parse_row(self, row):
         # This helper function parses a row and returns it as a dictionary.
