@@ -4,8 +4,23 @@ import numpy as np
 from abc import ABC, abstractmethod
 from sklearn.decomposition import PCA
 import json
+import uuid
+
+def norm(datum):
+    axis = None if datum.ndim == 1 else 1
+    return datum / np.linalg.norm(datum, axis=axis, keepdims=True)
 
 class AbstractIndex(ABC):
+    def __init__(self, type, num_vectors):
+        self.type = type
+        self.num_vectors = num_vectors
+
+    def __len__(self):
+        return self.num_vectors
+
+    def __str__(self):
+        return self.type
+
     @abstractmethod
     def get_all(self):
         pass
@@ -15,14 +30,17 @@ class AbstractIndex(ABC):
         pass
 
     @abstractmethod
-    def get_similarity(self, query, k, normalize=True, dataset_is_normalized=False, useGPU=False):
+    def get_similarity(self, query, k):
         pass
 
 
 class BaseIndex(AbstractIndex):
-    def __init__(self, embeddings, ids):
-        self.embeddings = embeddings
+    def __init__(self, embeddings, ids, normalize):
+        super().__init__('base', embeddings.length)  # Initialize name/len attribute in parent class
+        self.embeddings = norm(self.embeddings) if normalize else self.embeddings
         self.ids = ids
+        self.normalize = normalize
+
 
     def get_all(self):
         return {'id': self.ids, 'embedding': self.embeddings}
@@ -35,18 +53,9 @@ class BaseIndex(AbstractIndex):
         return vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
 
     # Time complexity: O(n_vectors + k log k)
-    def get_similarity(self, query, k, normalize=True, dataset_is_normalized=False, useGPU=False):
-        """
-        Find the top-k most similar items to a query item
-        :param query: The query item
-        :param k: The number of results to return
-        :return: A list of the top-k most similar items
-        """
+    def get_similarity(self, query, k):
         dataset_vectors = np.array(self.embeddings)
-        if not dataset_is_normalized and normalize:
-          dataset_vectors = self.normalize(dataset_vectors)
-            
-        query_normalized = self.normalize(query) if normalize else query
+        query_normalized = norm(query) if self.normalize else query
 
         # Compute cosine similarity between query and each item in the dataset
         scores = query_normalized @ dataset_vectors.T
@@ -56,16 +65,15 @@ class BaseIndex(AbstractIndex):
         # Return the top-k most-similar items
         return [self.get_by_id(self.ids[i]) for i in top_k_indices]
 
-class PCAIndex(AbstractIndex):
-    def __init__(self, ids, embeddings, n_components):
-        self.ids = ids
-        self.pca = PCA(n_components=n_components)
-        self.embeddings = self.pca.fit_transform(embeddings)
 
-    def add(self, id, embedding):
-        transformed_embedding = self.pca.fit_transform(embedding)
-        self.ids.append(id)
-        self.embeddings.append(transformed_embedding)
+
+class PCAIndex(AbstractIndex):
+    def __init__(self, ids, embeddings, n_components, normalize):
+        super().__init__('pca', embeddings.length)  # Initialize name/len attribute in parent class
+        self.ids = ids
+        self.pca = PCA(n_components)
+        self.embeddings = self.pca.fit_transform(embeddings)
+        self.embeddings = normalize(self.embeddings) if normalize else self.embeddings
 
     def get_all(self):
         return {'id': self.ids, 'embedding': self.embeddings}
@@ -74,22 +82,11 @@ class PCAIndex(AbstractIndex):
         index = self.ids.index(id)
         return {'id': id, 'embedding': self.embeddings[index]}
 
-    def normalize(self, vectors):
-        return vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
-
     # Time complexity: O(n_vectors + k log k)
-    def get_similarity(self, query, k, normalize=True, dataset_is_normalized=False, useGPU=False):
-        """
-        Find the top-k most similar items to a query item
-        :param query: The query item
-        :param k: The number of results to return
-        :return: A list of the top-k most similar items
-        """
-        dataset_vectors = np.array(self.embeddings)
-        if not dataset_is_normalized and normalize:
-          dataset_vectors = self.normalize(dataset_vectors)
-            
-        query_normalized = self.normalize(query) if normalize else query
+    def get_similarity(self, query, k):
+        dataset_vectors = np.array(self.embeddings)   
+        transformed_query = self.pca.transform(query.reshape(1, -1))
+        query_normalized = norm(transformed_query) if self.normalize else transformed_query
 
         # Compute cosine similarity between query and each item in the dataset
         scores = query_normalized @ dataset_vectors.T
@@ -100,11 +97,25 @@ class PCAIndex(AbstractIndex):
         return [self.get_by_id(self.ids[i]) for i in top_k_indices]
 
 class SQLiteDatabase:
-    def __init__(self, filename):
+    def __init__(self, filename, dimensions, load_indexes=True):
+        self.filename = filename
+        self.dimensions = dimensions
         self.conn = sqlite3.connect(filename)
         self.conn.text_factory = bytes
+
+        # Create the table if it doesn't exist
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS main_table (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL, embedding BLOB NOT NULL)"
+        )
+        # Create index table if it doesn't exist
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS index_metadata (name TEXT PRIMARY KEY, type TEXT NOT NULL, num_vectors INTEGER NOT NULL, is_active BOOLEAN NOT NULL, normalize BOOLEAN NOT NULL, dimension INTEGER NOT NULL)")
+        self.conn.commit()
+
+        # Create indexes
         self.indexes = {}
-        self.load_indexes()
+        if load_indexes:
+            self.load_indexes()
 
     def insert(self, text, embedding):
         # Convert data to bytes using pickle
@@ -121,6 +132,20 @@ class SQLiteDatabase:
             return None
 
         return cursor.lastrowid  # Return the ID of the new record
+    
+    def insert_many(self, texts, embeddings):
+        data = [(text, pickle.dumps(embedding)) for text, embedding in zip(texts, embeddings)]
+        try:
+            cursor = self.conn.executemany(
+                "INSERT INTO main_table (text, embedding) VALUES (?, ?)",
+                data
+            )
+            self.conn.commit()
+        except sqlite3.Error as e:
+            print(f"Insertion error: {e}")
+            return None
+
+        return cursor.lastrowid
 
     def get_by_id(self, id):
         try:
@@ -189,34 +214,68 @@ class SQLiteDatabase:
         return {'id': id, 'text': text, 'embedding': embedding}
     
     def load_indexes(self):
-        # Retrieve the embeddings from the main table
-        all_rows = self.get_all()
-        ids = [row['id'] for row in all_rows]
-        embeddings = [row['embedding'] for row in all_rows]
+        try:
+            # Retrieve the embeddings from the main table
+            all_rows = self.get_all()
+            ids = [row['id'] for row in all_rows]
+            embeddings = [row['embedding'] for row in all_rows]
 
-        # Retrieve index metadata from the database and instantiate indexes accordingly
-        cursor = self.conn.execute("SELECT * FROM index_metadata")
-        for row in cursor:
-            index_name, index_type, index_params = row
-            index_params = json.loads(index_params)
-            if index_type == 'Base':
-                self.indexes[index_name] = BaseIndex(embeddings, ids)
-            elif index_type == 'PCA':
-                self.indexes[index_name] = PCAIndex(embeddings, ids, index_params['n_components'])
-            else:
-                raise ValueError(f"Unknown index type: {index_type}")
+            # Retrieve index metadata from the database and instantiate indexes accordingly
+            cursor = self.conn.execute("SELECT * FROM index_metadata")
+            for index_row in cursor:
+                index_name, index_type, _, is_active, normalize, dimension = index_row
+                index_params = json.loads(index_params)
+                if not is_active:
+                    continue
+                if index_type == 'Base':
+                    self.indexes[index_name] = BaseIndex(embeddings, ids, normalize)
+                elif index_type == 'PCA':
+                    self.indexes[index_name] = PCAIndex(embeddings, ids, dimension, normalize)
+                else:
+                    raise ValueError(f"Unknown index type: {index_type}")
+        except MemoryError:
+            print("Failed to load all indexes due to insufficient memory. Please deactivate some indexes and try again.")
+            return None
 
-    def create_index(self, index_name, index_type, index_params=None):
-        # As before, but also create a record in the index_metadata table
+    def create_index(self, index_type, index_name=None, dimensions=None, cosine_similarity=True):
+        if index_type not in ['Base', 'PCA']:
+            print("Unknown index type.")
+            return None
+        if index_name is None:
+            index_name = index_type + '_' + str(uuid.uuid4())
+        if index_type == 'PCA' and dimensions is None:
+            print("Please specify the dimension for the index.")
+            return None
+        if dimensions is None:
+            dimensions = self.dimensions
+
         self.conn.execute(
-            "INSERT INTO index_metadata (index_name, index_type, index_params) VALUES (?, ?, ?)",
-            (index_name, index_type, json.dumps(index_params))
+            "INSERT INTO index_metadata (index_name, index_type, num_vectors, is_active, normalize, dimension) VALUES (?, ?, ?, ?, ?, ?)",
+            (index_name, index_type, len(self), True, cosine_similarity, dimensions)
         )
         self.conn.commit()
 
-    def refit_index(self, index_name):
-        # Retrieve the index from the dictionary
-        index = self.indexes[index_name]
+        # Create the index
+        self.rebuild_index(index_name)
+
+    def rebuild_index(self, index_name):
+        # Retrieve the index from the database
+        cursor = self.conn.execute(
+            "SELECT * FROM index_metadata WHERE index_name = ?",
+            (index_name,)
+        )
+        index_row = cursor.fetchone()
+
+        # Parse the result
+        if index_row is None:
+            print(f"Index {index_name} does not exist.")
+            return None
+        
+        index_name, index_type, _, is_active, normalize, dimension = index_row
+
+        if not is_active:
+            print(f"Index {index_name} is not active.")
+            return None
 
         # Retrieve the embeddings from the main table
         all_rows = self.get_all()
@@ -224,16 +283,37 @@ class SQLiteDatabase:
         embeddings = [row['embedding'] for row in all_rows]
         
         # Create a new index of the same type
-        if isinstance(index, BaseIndex):
-            new_index = BaseIndex(embeddings, ids)
-        elif isinstance(index, PCAIndex):
-            new_index = PCAIndex(embeddings, ids, index.n_components)
+        if index_type == 'Base':
+            new_index = BaseIndex(embeddings, ids, normalize)
+        elif index_type == 'PCA':
+            new_index = PCAIndex(embeddings, ids, dimension, normalize)
         else:
-            raise ValueError(f"Unknown index type: {type(index)}")
+            raise ValueError(f"Unknown index type: {index_type}")
         
         # Replace the index in the dictionary
         self.indexes[index_name] = new_index
 
+    def delete_index(self, index_name):
+        # As before, but also delete the record in the index_metadata table
+        self.conn.execute(
+            "DELETE FROM index_metadata WHERE index_name = ?",
+            (index_name,)
+        )
+        self.conn.commit()
+
+        # Delete the index from the dictionary
+        del self.indexes[index_name]
+
+    def set_index_activity(self, index_name, is_active):
+        # As before, but also update the record in the index_metadata table
+        self.conn.execute(
+            "UPDATE index_metadata SET is_active = ? WHERE index_name = ?",
+            (is_active, index_name)
+        )
+        self.conn.commit()
+
+        # Update the index
+        self.rebuild_index(index_name)
 
     def query(self, index_name, query_embedding, k=10):
         # Retrieve the index from the dictionary
