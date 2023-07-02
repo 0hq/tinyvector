@@ -3,7 +3,6 @@ import pickle
 import numpy as np
 from abc import ABC, abstractmethod
 from sklearn.decomposition import PCA
-import json
 import uuid
 
 def norm(datum):
@@ -11,15 +10,22 @@ def norm(datum):
     return datum / np.linalg.norm(datum, axis=axis, keepdims=True)
 
 class AbstractIndex(ABC):
-    def __init__(self, type, num_vectors):
+    def __init__(self, type, num_vectors, dimension, allow_updates=False):
         self.type = type
         self.num_vectors = num_vectors
+        self.dimension = dimension
+        self.allow_updates = allow_updates
 
     def __len__(self):
         return self.num_vectors
 
     def __str__(self):
         return self.type
+
+
+    @abstractmethod
+    def add_vector(self, id, embedding):
+        pass
 
     @abstractmethod
     def get_all(self):
@@ -35,12 +41,20 @@ class AbstractIndex(ABC):
 
 
 class BaseIndex(AbstractIndex):
-    def __init__(self, embeddings, ids, normalize):
-        super().__init__('base', embeddings.length)  # Initialize name/len attribute in parent class
-        self.embeddings = norm(self.embeddings) if normalize else self.embeddings
+    def __init__(self, embeddings, ids, normalize, allow_updates=True):
+        super().__init__('base', len(embeddings), len(embeddings[0]), allow_updates)  # Initialize name/len attribute in parent class
+        self.embeddings = norm(embeddings) if normalize else embeddings
         self.ids = ids
         self.normalize = normalize
-
+        
+    def add_vector(self, id, embedding):
+        if not self.allow_updates:
+            raise ValueError("Cannot add vectors to a non-updatable index")
+        if len(embedding) != self.dimension:
+            raise ValueError(f"Expected embedding of dimension {self.dimension}, got {len(embedding)}")
+        self.ids.append(id)
+        self.embeddings.append(norm(embedding) if self.normalize else embedding)
+        self.num_vectors += 1
 
     def get_all(self):
         return {'id': self.ids, 'embedding': self.embeddings}
@@ -49,11 +63,13 @@ class BaseIndex(AbstractIndex):
         index = self.ids.index(id)
         return {'id': id, 'embedding': self.embeddings[index]}
 
-    def normalize(self, vectors):
-        return vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
-
     # Time complexity: O(n_vectors + k log k)
     def get_similarity(self, query, k):
+        # Check dimensions of query
+        if len(query) != self.dimension:
+            raise ValueError(f"Expected query of dimension {self.dimension}, got {len(query)}")
+        
+        # Normalize query 
         dataset_vectors = np.array(self.embeddings)
         query_normalized = norm(query) if self.normalize else query
 
@@ -68,12 +84,27 @@ class BaseIndex(AbstractIndex):
 
 
 class PCAIndex(AbstractIndex):
-    def __init__(self, ids, embeddings, n_components, normalize):
-        super().__init__('pca', embeddings.length)  # Initialize name/len attribute in parent class
+    def __init__(self, ids, embeddings, n_components, normalize, allow_updates=False):
+        if allow_updates:
+            print("Warning: PCA index is not intended to be used with allow_updates=True. This will result in reduced performance until the next time index is rebuilt.")
+        super().__init__('pca', len(embeddings), n_components, allow_updates)  # Initialize name/len attribute in parent class
         self.ids = ids
         self.pca = PCA(n_components)
+        self.original_dimension = len(embeddings[0])
         self.embeddings = self.pca.fit_transform(embeddings)
-        self.embeddings = normalize(self.embeddings) if normalize else self.embeddings
+        self.embeddings = norm(self.embeddings) if normalize else self.embeddings
+        self.normalize = normalize
+
+    def add_vector(self, id, embedding):
+        if not self.allow_updates:
+            raise ValueError("Cannot add vectors to a non-updatable index")
+        print("Warning: PCA index is not intended to be used with allow_updates=True. This will result in reduced performance until the next time index is rebuilt.")
+        if len(embedding) != self.original_dimension:
+            raise ValueError(f"Expected embedding of dimension {self.original_dimension}, got {len(embedding)}")
+        self.ids.append(id)
+        transformed_embedding = self.pca.transform(embedding.reshape(1, -1))
+        self.embeddings.append(norm(transformed_embedding) if self.normalize else transformed_embedding)
+        self.num_vectors += 1
 
     def get_all(self):
         return {'id': self.ids, 'embedding': self.embeddings}
@@ -84,6 +115,11 @@ class PCAIndex(AbstractIndex):
 
     # Time complexity: O(n_vectors + k log k)
     def get_similarity(self, query, k):
+        # Check dimensions of query
+        if len(query) != self.original_dimension:
+            raise ValueError(f"Expected query of dimension {self.original_dimension}, got {len(query)}")
+        
+        # Transform query to PCA space
         dataset_vectors = np.array(self.embeddings)   
         transformed_query = self.pca.transform(query.reshape(1, -1))
         query_normalized = norm(transformed_query) if self.normalize else transformed_query
@@ -224,7 +260,6 @@ class SQLiteDatabase:
             cursor = self.conn.execute("SELECT * FROM index_metadata")
             for index_row in cursor:
                 index_name, index_type, _, is_active, normalize, dimension = index_row
-                index_params = json.loads(index_params)
                 if not is_active:
                     continue
                 if index_type == 'Base':
@@ -249,6 +284,12 @@ class SQLiteDatabase:
         if dimensions is None:
             dimensions = self.dimensions
 
+        # Check if the index already exists
+        if self.index_exists(index_name):
+            print(f"Index {index_name} already exists.")
+            return None
+        
+        # Insert index metadata into the database
         self.conn.execute(
             "INSERT INTO index_metadata (index_name, index_type, num_vectors, is_active, normalize, dimension) VALUES (?, ?, ?, ?, ?, ?)",
             (index_name, index_type, len(self), True, cosine_similarity, dimensions)
@@ -265,8 +306,6 @@ class SQLiteDatabase:
             (index_name,)
         )
         index_row = cursor.fetchone()
-
-        # Parse the result
         if index_row is None:
             print(f"Index {index_name} does not exist.")
             return None
@@ -304,7 +343,20 @@ class SQLiteDatabase:
         # Delete the index from the dictionary
         del self.indexes[index_name]
 
+    def index_exists(self, index_name):
+        # Retrieve the index from the database
+        cursor = self.conn.execute(
+            "SELECT * FROM index_metadata WHERE index_name = ?",
+            (index_name,)
+        )
+        index_row = cursor.fetchone()
+        return index_row is not None
+
     def set_index_activity(self, index_name, is_active):
+        if not self.index_exists(index_name):
+            print(f"Index {index_name} does not exist.")
+            return None
+
         # As before, but also update the record in the index_metadata table
         self.conn.execute(
             "UPDATE index_metadata SET is_active = ? WHERE index_name = ?",
