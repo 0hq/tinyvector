@@ -14,7 +14,7 @@ logging.basicConfig(filename='logs/app.log', level=logging.INFO,
 
 app = Flask(__name__)
 load_dotenv()
-db = DB('database/database.db')  # initialize DB with database.db sqlite file
+db = DB('database/database.db')
 
 stream_handler = logging.StreamHandler()
 stream_handler.setLevel(logging.DEBUG)
