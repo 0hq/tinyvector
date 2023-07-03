@@ -38,10 +38,12 @@ TinyVector is going to be growing a lot (don't worry, will still be tiny). Feel 
 
 Some ideas for first pulls:
 
-- Let's start GPU accelerating with a Pytorch index. GPUs are great at matmuls -> NN search with a fused kernel. Let's put 32 million vectors on a single GPU.
 - Add metadata and allow querying/filtering. This is especially important since a lot vector databases literally don't have a WHERE clause lol (or just an extremely weak one). Not a problem here. [Read more about this.](https://www.pinecone.io/learn/vector-search-filtering)
 - Rethinking SQLite and choosing something. NOSQL feels fitting for embeddings?
+- Add embedding functions for easy adding text (sentence transformers, OpenAI, Cohere, etc.)
+-  Let's start GPU accelerating with a Pytorch index. GPUs are great at matmuls -> NN search with a fused kernel. Let's put 32 million vectors on a single GPU.
 - Help write unit and integration tests.
+
 
 ## License
 
