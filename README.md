@@ -43,7 +43,7 @@ Read OpenAI's [explanation](https://platform.openai.com/docs/guides/embeddings/w
 
 ## Get involved
 
-TinyVector is going to be growing a lot (don't worry, will still be tiny). Feel free to make a PR and contribute. If you have questions, just mention [@willdepue](https://twitter.com/willdepue).
+tinyvector is going to be growing a lot (don't worry, will still be tiny). Feel free to make a PR and contribute. If you have questions, just mention [@willdepue](https://twitter.com/willdepue).
 
 Some ideas for first pulls:
 
