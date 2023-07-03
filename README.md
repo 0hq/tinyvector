@@ -17,12 +17,16 @@
 ### Soon
 - __Powerful Queries__: Tinyvector is being upgraded with full SQL querying functionality, something missing from most other databases.
 
-## We're better than XYZ
+## We're better than ...
 
 In most cases, most vector databases are overkill for something simple like:
 1. Using embeddings to chat with your documents. Most document search is nowhere close to what you'd need to justify accelerating search speed with [HNSW](https://github.com/nmslib/hnswlib) or [FAISS](https://github.com/facebookresearch/faiss).
 2. Doing search for your website or store. Unless you're selling 1,000,000 items, you don't need Pinecone.
 3. Performing complex search queries on a very large database. Even if you have 10 million embeddings, this might still be the better option due to vector databases struggling with complex filtering. Tinyvector doesn't support metadata/filtering just yet, but it's very easy for you to add that yourself.
+
+Here's a plot of tinyvector (numpy) versus the most common vector DB algorithm (Chroma, Weaviate, Milvus, etc.)!
+
+![image](https://github.com/0hq/tinyvector/assets/30643741/8f50bf86-432c-4944-a9d1-f9ded389cb02)
 
 ## Embeddings?
 
