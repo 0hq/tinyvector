@@ -23,6 +23,9 @@ stream_handler.setFormatter(formatter)
 app.logger.addHandler(stream_handler)
 
 def token_required(f):
+    """
+    Decorator function to enforce token authentication for specific routes.
+    """
     @wraps(f)
     def decorator(*args, **kwargs):
         token = None
@@ -52,12 +55,20 @@ def token_required(f):
 
 @app.route('/status', methods=['GET'])
 def status():
+    """
+    Route to check the status of the application.
+    """
     app.logger.info('Status check performed')
     return jsonify({'status': 'success'}), 200
 
 @app.route('/create_table', methods=['POST'])
 @token_required
 def create_table():
+    """
+    Route to create a table in the database.
+    If use_uuid is True, the table will use UUIDs as IDs, and the IDs provided in the insert route are not allowed. 
+    If use_uuid is False, the table will require strings as IDs.
+    """
     data = request.get_json()
     table_name = data.get('table_name')
     dimension = data.get('dimension')
@@ -73,6 +84,10 @@ def create_table():
 @app.route('/delete_table', methods=['DELETE'])
 @token_required
 def delete_table():
+    """
+    Route to permanently delete a table and its data from the database.
+    This will also delete the index associated with the table.
+    """
     data = request.get_json()
     table_name = data.get('table_name')
     try:
@@ -86,9 +101,16 @@ def delete_table():
 @app.route('/insert', methods=['POST'])
 @token_required
 def insert():
+    """
+    Route to insert an item into a table in the database.
+    Requires a previously generated vector embedding of the right dimension (set when creating the table).
+    If use_uuid was set to True when creating the table, the ID will be generated automatically. Providing an ID in the request will result in an error.
+    If use_uuid was set to False, the ID must be provided as a string.
+    Defer index update can be set to True to stop the index from being updated after the insert. This only works for brute force index, as other indexes can't be efficiently updated after creation.
+    """
     data = request.get_json()
     table_name = data.get('table_name')
-    id = data.get('id') # None for UUID tables, otherwise a string
+    id = data.get('id')  # None for UUID tables, otherwise a string
     embedding = data.get('embedding')
     content = data.get('content', None)
     defer_index_update = data.get('defer_index_update', False)
@@ -102,8 +124,13 @@ def insert():
         return jsonify({'error': str(e)}), 400
 
 @app.route('/query', methods=['POST'])
-@token_required # Remove this if you want to allow unauthenticated queries to your database
+@token_required
 def query():
+    """
+    Route to perform a query on a table in the database.
+    Requires a previously generated query vector embedding of the right dimension (set when creating the table).
+    K is the number of items to return.
+    """
     data = request.get_json()
     table_name = data.get('table_name')
     query = data.get('query')
@@ -120,10 +147,18 @@ def query():
 @app.route('/create_index', methods=['POST'])
 @token_required
 def create_index():
+    """
+    Route to create an index on a table in the database.
+    Index type can be 'brute_force' or 'pca'. 
+    PCA index is a dimensionality reduction index, and n_components is the number of components to keep and must be less than the dimension of the table. See README for more details.
+    If normalize is True, cosine similarity will be used. If False, dot product will be used.
+    If allow_index_updates is True, the index will be updated after each insert. This only works for brute force index, as other indexes can't be efficiently updated after creation.
+    If you want to update index contents from a non-updatable index (PCA, others), the reccomended method is to delete and create a new one.
+    """
     data = request.get_json()
     table_name = data.get('table_name')
     index_type = data.get('index_type', 'brute_force')
-    normalize = data.get('normalize', True) # True for cosine similarity, False for dot product
+    normalize = data.get('normalize', True) 
     allow_index_updates = data.get('allow_index_updates', None)
     n_components = data.get('n_components', None)
     try:
@@ -137,6 +172,10 @@ def create_index():
 @app.route('/delete_index', methods=['DELETE'])
 @token_required
 def delete_index():
+    """
+    Route to delete an index from a table in the database.
+    This will not delete the table or its data.
+    """
     data = request.get_json()
     table_name = data.get('table_name')
     try:
