@@ -6,13 +6,12 @@ import numpy as np
 import psutil
 from sklearn.decomposition import PCA
 
-
 def norm_np(datum):
     """
     Normalize a NumPy array along the specified axis using L2 normalization.
     """
     axis = None if datum.ndim == 1 else 1
-    return datum / np.linalg.norm(datum, axis=axis, keepdims=True)
+    return datum / (np.linalg.norm(datum, axis=axis, keepdims=True) + 1e-6)
 
 def norm_python(datum):
     """
@@ -27,6 +26,9 @@ def array_to_blob(array):
     """
     Convert a NumPy array to a binary blob.
     """
+    # Validate that the array is a numpy array of type float32
+    if not isinstance(array, np.ndarray):
+        raise ValueError("Expected a numpy array")
     return array.tobytes()
 
 def blob_to_array(blob):
@@ -39,7 +41,7 @@ class AbstractIndex(ABC):
     """
     Abstract base class for database indexes.
     """
-    def __init__(self, table_name, type, num_vectors, dimension, allow_updates=False):
+    def __init__(self, table_name, type, num_vectors, dimension):
         self.table_name = table_name
         self.type = type
         self.num_vectors = num_vectors
@@ -170,7 +172,7 @@ class PCAIndex(AbstractIndex):
             raise ValueError(f"Expected query of dimension {self.original_dimension}, got {len(query)}")
         
         dataset_vectors = self.embeddings
-        transformed_query = self.pca.transform(query)
+        transformed_query = self.pca.transform([query])[0]
         query_normalized = norm_np(transformed_query) if self.normalize else transformed_query
 
         scores = query_normalized @ dataset_vectors.T

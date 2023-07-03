@@ -7,13 +7,17 @@ import numpy as np
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 
-from vectordb import DB
+from database import DB
 
 logging.basicConfig(filename='logs/app.log', level=logging.INFO, 
                     format='%(asctime)s %(levelname)s %(name)s %(threadName)s : %(message)s')
+load_dotenv()
+
+# If JWT_SECRET is not set, the application will run in debug mode
+if os.getenv('JWT_SECRET') is None:
+    os.environ['FLASK_ENV'] = 'development'
 
 app = Flask(__name__)
-load_dotenv()
 db = DB('cache/database.db')
 
 stream_handler = logging.StreamHandler()
@@ -39,9 +43,13 @@ def token_required(f):
         if not token:
             app.logger.warning('Token is missing!')
             return jsonify({'message': 'Token is missing!'}), 401
+        
+        JWT_SECRET = os.getenv('JWT_SECRET')
+        if JWT_SECRET is None:
+            raise Exception('JWT_SECRET is not set!')
 
         try:
-            _ = jwt.decode(token, os.getenv('JWT_SECRET'), algorithms=['HS256'])
+            _ = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
         except jwt.ExpiredSignatureError:
             app.logger.error('Token is expired!')
             return jsonify({'message': 'Token is expired!'}), 401
