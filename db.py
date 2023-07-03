@@ -3,6 +3,7 @@ import numpy as np
 from abc import ABC, abstractmethod
 from sklearn.decomposition import PCA
 import psutil
+import uuid
 
 def norm_np(datum):
     axis = None if datum.ndim == 1 else 1
@@ -42,15 +43,15 @@ class AbstractIndex(ABC):
         pass
 
 
-class BaseIndexImmutable(AbstractIndex):
+class BruteForceIndexImmutable(AbstractIndex):
     def __init__(self, table_name, dimension, normalize, embeddings, ids):
-        super().__init__(table_name, 'base', len(embeddings), dimension)  
+        super().__init__(table_name, 'brute_force', len(embeddings), dimension)  
         self.embeddings = norm_np(embeddings) if normalize else embeddings
         self.ids = ids
         self.normalize = normalize
         
     def add_vector(self, id, embedding):
-        raise NotImplementedError("This index does not support vector addition. Please use BaseIndexMutable if updates are required.")
+        raise NotImplementedError("This index does not support vector addition. Please use BruteForceIndexMutable if updates are required.")
         
     def get_similarity(self, query, k):
         if len(query) != self.dimension:
@@ -64,9 +65,9 @@ class BaseIndexImmutable(AbstractIndex):
         return [{'id': self.ids[i], 'embedding': self.embeddings[i], 'score': scores[i]} for i in top_k_indices]
 
 
-class BaseIndexMutable(AbstractIndex):
+class BruteForceIndexMutable(AbstractIndex):
     def __init__(self, table_name, dimension, normalize, embeddings, ids):
-        super().__init__(table_name, 'base', len(embeddings), dimension) 
+        super().__init__(table_name, 'brute_force', len(embeddings), dimension) 
         self.embeddings = norm_python(embeddings) if normalize else embeddings.tolist()
         self.ids = ids
         self.normalize = normalize
@@ -103,7 +104,7 @@ class PCAIndex(AbstractIndex):
         self.normalize = normalize
 
     def add_vector(self, id, embedding):
-        raise NotImplementedError("This index does not support vector addition. Please use BaseIndexMutable if updates are required.")
+        raise NotImplementedError("This index does not support vector addition. Please use BruteForceIndexMutable if updates are required.")
 
     # Time complexity: O(n_vectors + k log k)
     def get_similarity(self, query, k):
@@ -134,7 +135,7 @@ class DB:
         self._init_db()
 
     def _init_db(self):
-        self.c.execute("CREATE TABLE IF NOT EXISTS table_metadata (table_name TEXT PRIMARY KEY, dimension INTEGER, index_type TEXT, normalize BOOLEAN, allow_index_updates BOOLEAN, is_active BOOLEAN)")
+        self.c.execute("CREATE TABLE IF NOT EXISTS table_metadata (table_name TEXT PRIMARY KEY, dimension INTEGER, index_type TEXT, normalize BOOLEAN, allow_index_updates BOOLEAN, is_active BOOLEAN, use_uuid BOOLEAN)")
         self.conn.commit()
         self._load_metadata()
 
@@ -142,8 +143,8 @@ class DB:
         self.table_metadata = {}
         select_query = "SELECT * FROM table_metadata"
         for row in self.c.execute(select_query):
-            table_name, dimension, index_type, normalize, allow_index_updates, is_index_active = row
-            self.table_metadata[table_name] = {'dimension': dimension, 'index_type': index_type, 'normalize': normalize, 'allow_index_updates': allow_index_updates, 'is_index_active': is_index_active}
+            table_name, dimension, index_type, normalize, allow_index_updates, is_index_active, use_uuid = row
+            self.table_metadata[table_name] = {'dimension': dimension, 'index_type': index_type, 'normalize': normalize, 'allow_index_updates': allow_index_updates, 'is_index_active': is_index_active, 'use_uuid': use_uuid}
             if is_index_active:
                 self.create_index(table_name, index_type, dimension, normalize, allow_index_updates)
 
@@ -164,17 +165,17 @@ class DB:
             raise ValueError(f"Index for table {table_name} already exists. Delete the index first if you want to rebuild it.")
         
         if allow_index_updates is None:
-            allow_index_updates = True if index_type == 'base' else False
+            allow_index_updates = True if index_type == 'brute_force' else False
         if allow_index_updates is True and index_type == 'pca':
-            raise print("Warning: PCA index is not intended to be used with allow_updates=True. This will result in reduced performance until the next time index is rebuilt.")
+            raise ValueError("PCA index does not support updates. Please set allow_index_updates=False.")
         
         dimension = self.table_metadata[table_name]['dimension']
-        if index_type == 'base':
+        if index_type == 'brute_force':
             ids, embeddings = get_data(f"SELECT * FROM {table_name}")
             if allow_index_updates:
-                self.indexes[table_name] = BaseIndexMutable(table_name, dimension, normalize, embeddings, ids)
+                self.indexes[table_name] = BruteForceIndexMutable(table_name, dimension, normalize, embeddings, ids)
             else:
-                self.indexes[table_name] = BaseIndexImmutable(table_name, dimension, normalize, embeddings, ids)
+                self.indexes[table_name] = BruteForceIndexImmutable(table_name, dimension, normalize, embeddings, ids)
         elif index_type == 'pca':
             if n_components is None:
                 raise ValueError("n_components must be specified for PCA index")
@@ -192,15 +193,15 @@ class DB:
         self.conn.commit()
 
 
-    def create_table(self, table_name, dimension):
+    def create_table(self, table_name, dimension, use_uuid):
         if self.table_metadata.get(table_name) is not None:
             raise ValueError(f"Table {table_name} already exists")
-        self.c.execute(f"CREATE TABLE {table_name} (id INTEGER PRIMARY KEY, embedding BLOB)")
-        self.c.execute("INSERT INTO table_metadata VALUES (?, ?, ?, ?, ?, ?)", (table_name, dimension, None, None, None, False))
+        self.c.execute(f"CREATE TABLE {table_name} (id TEXT PRIMARY KEY, embedding BLOB)")
+        self.c.execute("INSERT INTO table_metadata VALUES (?, ?, ?, ?, ?, ?, ?)", (table_name, dimension, None, None, None, False, use_uuid))
         self.conn.commit()
 
         # Update metadata
-        self.table_metadata[table_name] = {'dimension': dimension, 'index_type': None, 'normalize': None, 'allow_index_updates': None, 'is_index_active': False}
+        self.table_metadata[table_name] = {'dimension': dimension, 'index_type': None, 'normalize': None, 'allow_index_updates': None, 'is_index_active': False, 'use_uuid': use_uuid}
 
     def delete_table(self, table_name):
         if self.table_metadata.get(table_name) is None:
@@ -225,6 +226,14 @@ class DB:
     def insert(self, table_name, id, embedding, defer_index_update=False):
         if psutil.virtual_memory().available < 0.1 * psutil.virtual_memory().total:
             raise MemoryError("System is running out of memory")
+
+        if self.table_metadata[table_name]['use_uuid'] and id is not None:
+            raise ValueError("This table uses auto-generated UUIDs. Do not provide an ID.")
+        elif self.table_metadata[table_name]['use_uuid']:
+            id = str(uuid.uuid4())  # Generate a unique ID using the uuid library.
+        elif id is None:
+            raise ValueError("This table uses custom IDs. Please provide an ID.")
+
         insert_query = f"INSERT INTO {table_name} VALUES (?, ?)"
         self.c.execute(insert_query, (id, array_to_blob(embedding)))
         self.conn.commit()
