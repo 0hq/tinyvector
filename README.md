@@ -11,6 +11,7 @@
     <i>In pre-release: prod-ready by late-July.</i> <b><i>Still in development!</i></b> <br />
 </p>
 
+
 ## Features
 - __Tiny__: It's in the name. It's just a Flask server, SQLite DB, and Numpy indexes. Extremely easy to customize, under 500 lines of code.
 - __Fast__: Tinyvector already beats other advanced vector databases when it comes to speed on small to medium datasets.
@@ -31,7 +32,7 @@ In most cases, most vector databases are overkill for something simple like:
 
 Here's a plot of tinyvector (numpy) versus the most common vector DB algorithm (Chroma, Weaviate, Milvus, etc.)!
 
-![image](https://github.com/0hq/tinyvector/assets/30643741/8f50bf86-432c-4944-a9d1-f9ded389cb02)
+![results 1](https://github.com/0hq/tinyvector/assets/30643741/1a31aa64-9cad-4703-8179-6628b1909a2e)
 
 ## Embeddings?
 
@@ -40,6 +41,13 @@ What are embeddings?
 > As simple as possible: Embeddings are a way to compare similar things, in the same way humans compare similar things, by converting text into a small list of numbers. Similar pieces of text will have similar numbers, different ones have very different numbers.
 
 Read OpenAI's [explanation](https://platform.openai.com/docs/guides/embeddings/what-are-embeddings).  
+
+## Known Issues
+```
+# Major bugs:
+Data corruption SQLite error? Stored vectors end up changing. Replicate by creating a table, inserting vectors, creating an index and then screwing around till an error happens. Dims end up unmatched (might be the blob functions or the norm functions most likely, but doesn't explain why the database is changing).
+PCA is not tested, neither is immutable Brute Force index.
+```
 
 ## Get involved
 
