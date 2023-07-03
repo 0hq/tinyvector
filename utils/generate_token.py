@@ -11,7 +11,7 @@ def generate_token(user_id):
         'exp': datetime.datetime.utcnow() + datetime.timedelta(days=0, minutes=30)
     }
 
-    token = jwt.encode(payload, os.getenv('SECRET_KEY'), algorithm='HS256')
+    token = jwt.encode(payload, os.getenv('JWT_SECRET'), algorithm='HS256')
 
     return token
 

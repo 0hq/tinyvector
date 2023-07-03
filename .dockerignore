@@ -1,0 +1,15 @@
+# Ignore all logs
+*.log
+
+# Ignore all .pyc files
+*.pyc
+
+# Ignore data directory
+/data/*
+
+# Ignore Git and GitHub files
+.git/
+.github/
+
+# Ignore environment files
+.env
