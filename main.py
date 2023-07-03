@@ -20,6 +20,7 @@ def load_databases():
 
 def save_databases():
     with open(DATABASES_PATH, 'wb') as f:
+        databases = [{ "name": db_name, "dimensions": db.dimensions, } for db_name, db in databases.items()}]
         pickle.dump(databases, f)
 
 databases = load_databases()
@@ -36,6 +37,7 @@ class DatabaseResource(Resource):
         # Create a new database
         dimensions = request.json.get('dimensions', 300)  # Use a default value if not provided
         databases[db_name] = SQLiteDatabase(db_name, dimensions)
+        save_databases()
         return {"message": f"Database {db_name} created"}, 201
 
     def delete(self, db_name):
@@ -46,7 +48,16 @@ class DatabaseResource(Resource):
         else:
             abort(404, message=f"Database {db_name} doesn't exist")
 
-
+class DatabaseOperationsResource(Resource):
+    def post(self, db_name, operation):
+        db = databases.get(db_name)
+        if not db:
+            abort(404, message=f"Database {db_name} doesn't exist")
+        if operation == 'update':
+            db.clear()
+            return {"message": f"Database {db_name} cleared"}
+        else:
+            abort(404, message=f"Operation {operation} not supported")
 
 class IndexResource(Resource):
     def get(self, db_name, index_name, include_vectors=False):
@@ -92,31 +103,23 @@ class QueryResource(Resource):
         return jsonify(results)
     
 class ItemResource(Resource):
-    def get(self, db_name, index_name, item_id):
+    def get(self, db_name, item_id):
         db = databases.get(db_name)
         if not db:
             abort(404, message=f"Database {db_name} doesn't exist")
-        index = db.indexes.get(index_name)
-        if not index:
-            abort(404, message=f"Index {index_name} doesn't exist")
-        item = index.get_item(item_id) 
+        item = db.get_item(item_id) 
         if not item:
             abort(404, message=f"Item {item_id} doesn't exist")
         return jsonify(item)
 
-    def post(self, db_name, index_name):
+    def post(self, db_name):
         db = databases.get(db_name)
         if not db:
             abort(404, message=f"Database {db_name} doesn't exist")
-        index = db.indexes.get(index_name)
-        if not index:
-            abort(404, message=f"Index {index_name} doesn't exist")
-        if not index.allow_updates:
-            abort(405, message=f"Index {index_name} doesn't allow updates")
         item_id = request.json.get('item_id')
         vector = np.array(request.json.get('vector'))
-        index.add_item(item_id, vector)
-        return {"message": f"Item {item_id} added"}, 201
+        status = db.add_item(item_id, vector)
+        return {"message": f"Item {item_id} added, index statuses: {status}"}, 201
 
 # Add URL routes
 api.add_resource(DatabaseResource, '/database/<string:db_name>')

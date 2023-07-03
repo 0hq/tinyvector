@@ -10,7 +10,8 @@ def norm(datum):
     return datum / np.linalg.norm(datum, axis=axis, keepdims=True)
 
 class AbstractIndex(ABC):
-    def __init__(self, type, num_vectors, dimension, allow_updates=False):
+    def __init__(self, table_name, type, num_vectors, dimension, allow_updates=False):
+        self.table_name = table_name
         self.type = type
         self.num_vectors = num_vectors
         self.dimension = dimension
@@ -20,8 +21,7 @@ class AbstractIndex(ABC):
         return self.num_vectors
 
     def __str__(self):
-        return self.type
-
+        return self.table_name + ' ' + self.type
 
     @abstractmethod
     def add_vector(self, id, embedding):
