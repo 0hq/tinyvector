@@ -1,16 +1,44 @@
 from flask import Flask, request, jsonify
 from code import DB 
 import numpy as np
+import jwt
+from functools import wraps
+from dotenv import load_dotenv
+import os
 
 app = Flask(__name__)
-
+load_dotenv()
 db = DB('database.db')  # initialize DB with database.db sqlite file
+
+def token_required(f):
+    @wraps(f)
+    def decorator(*args, **kwargs):
+
+        token = None
+
+        if 'Authorization' in request.headers:
+            token = request.headers['Authorization']
+
+        if not token:
+            return jsonify({'message': 'Token is missing!'}), 401
+
+        try:
+            payload = jwt.decode(token, os.getenv('SECRET_KEY'), algorithms=['HS256'])
+        except jwt.ExpiredSignatureError:
+            return jsonify({'message': 'Token is expired!'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'message': 'Token is invalid!'}), 401
+
+        return f(*args, **kwargs)
+
+    return decorator
 
 @app.route('/status', methods=['GET'])
 def status():
     return jsonify({'status': 'success'}), 200
 
 @app.route('/create_table', methods=['POST'])
+@token_required
 def create_table():
     data = request.get_json()
     table_name = data.get('table_name')
@@ -23,6 +51,7 @@ def create_table():
         return jsonify({'error': str(e)}), 400
 
 @app.route('/delete_table', methods=['DELETE'])
+@token_required
 def delete_table():
     data = request.get_json()
     table_name = data.get('table_name')
@@ -33,6 +62,7 @@ def delete_table():
         return jsonify({'error': str(e)}), 400
 
 @app.route('/insert', methods=['POST'])
+@token_required
 def insert():
     data = request.get_json()
     table_name = data.get('table_name')
@@ -48,6 +78,7 @@ def insert():
         return jsonify({'error': str(e)}), 400
 
 @app.route('/query', methods=['POST'])
+@token_required # Remove this if you want to allow unauthenticated queries to your database
 def query():
     data = request.get_json()
     table_name = data.get('table_name')
@@ -61,6 +92,7 @@ def query():
         return jsonify({'error': str(e)}), 400
 
 @app.route('/create_index', methods=['POST'])
+@token_required
 def create_index():
     data = request.get_json()
     table_name = data.get('table_name')
@@ -75,6 +107,7 @@ def create_index():
         return jsonify({'error': str(e)}), 400
 
 @app.route('/delete_index', methods=['DELETE'])
+@token_required
 def delete_index():
     data = request.get_json()
     table_name = data.get('table_name')
