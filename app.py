@@ -18,7 +18,6 @@ if os.getenv('JWT_SECRET') is None:
     os.environ['FLASK_ENV'] = 'development'
 
 app = Flask(__name__)
-db = DB('cache/database.db')
 
 stream_handler = logging.StreamHandler()
 stream_handler.setLevel(logging.DEBUG)
@@ -68,6 +67,20 @@ def status():
     """
     app.logger.info('Status check performed')
     return jsonify({'status': 'success'}), 200
+
+@app.route('/info', methods=['GET'])
+@token_required
+def info():
+    """
+    Route to get information about the database.
+    """
+    try:
+        info = db.info()
+        app.logger.info('Info retrieved successfully')
+        return jsonify(info), 200
+    except Exception as e:
+        app.logger.error(f'Error while retrieving info: {str(e)}')
+        return jsonify({'error': str(e)}), 400
 
 @app.route('/create_table', methods=['POST'])
 @token_required
@@ -196,4 +209,5 @@ def delete_index():
 
 if __name__ == '__main__':
     app.logger.info('Starting server...')
+    db = DB('cache/database.db')
     app.run(host='0.0.0.0', port=5000, debug=True)

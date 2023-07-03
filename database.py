@@ -6,6 +6,7 @@ import numpy as np
 import psutil
 from sklearn.decomposition import PCA
 
+
 def norm_np(datum):
     """
     Normalize a NumPy array along the specified axis using L2 normalization.
@@ -35,7 +36,8 @@ def blob_to_array(blob):
     """
     Convert a binary blob to a NumPy array.
     """
-    return np.frombuffer(blob, dtype=np.float32)
+    result = np.frombuffer(blob, dtype=np.float32)
+    return result
 
 class AbstractIndex(ABC):
     """
@@ -52,6 +54,9 @@ class AbstractIndex(ABC):
 
     def __str__(self):
         return self.table_name + ' ' + self.type
+
+    def __repr__(self):
+        return self.__str__()
 
     @abstractmethod
     def add_vector(self, id, embedding):
@@ -75,7 +80,7 @@ class BruteForceIndexImmutable(AbstractIndex):
     Search complexity is O(n + k log k) where n is the number of vectors in the index.
     """
     def __init__(self, table_name, dimension, normalize, embeddings, ids):
-        super().__init__(table_name, 'brute_force', len(embeddings), dimension)  
+        super().__init__(table_name, 'brute_force_immutable', len(embeddings), dimension)  
         self.embeddings = norm_np(embeddings) if normalize else embeddings
         self.ids = ids
         self.normalize = normalize
@@ -95,7 +100,8 @@ class BruteForceIndexImmutable(AbstractIndex):
 
         query_normalized = norm_np(query) if self.normalize else query
         scores = query_normalized @ self.embeddings.T
-        partitioned_indices = np.argpartition(-scores, kth=k)[:k]
+        arg_k = k if k < len(scores) else len(scores) - 1
+        partitioned_indices = np.argpartition(-scores, kth=arg_k)[:k]
         top_k_indices = partitioned_indices[np.argsort(-scores[partitioned_indices])]
 
         return [{'id': self.ids[i], 'embedding': self.embeddings[i], 'score': scores[i]} for i in top_k_indices]
@@ -108,7 +114,10 @@ class BruteForceIndexMutable(AbstractIndex):
     Search complexity is O(n + k log k) where n is the number of vectors in the index.
     """
     def __init__(self, table_name, dimension, normalize, embeddings, ids):
-        super().__init__(table_name, 'brute_force', len(embeddings), dimension) 
+        super().__init__(table_name, 'brute_force_mutable', len(embeddings), dimension) 
+        if len(embeddings) > 0 and dimension != len(embeddings[0]):
+            raise ValueError(f"Expected embeddings of dimension {self.dimension}, got {len(embeddings[0])}")
+        print("embeddings: ", embeddings, "norm_python: ", norm_python(embeddings))
         self.embeddings = norm_python(embeddings) if normalize else embeddings.tolist()
         self.ids = ids
         self.normalize = normalize
@@ -129,11 +138,12 @@ class BruteForceIndexMutable(AbstractIndex):
         """
         if len(query) != self.dimension:
             raise ValueError(f"Expected query of dimension {self.dimension}, got {len(query)}")
-
+        
         query_normalized = norm_np(query) if self.normalize else query
         dataset_vectors = np.array(self.embeddings)
         scores = query_normalized @ dataset_vectors.T
-        partitioned_indices = np.argpartition(-scores, kth=k)[:k]
+        arg_k = k if k < len(scores) else len(scores) - 1
+        partitioned_indices = np.argpartition(-scores, kth=arg_k)[:k]
         top_k_indices = partitioned_indices[np.argsort(-scores[partitioned_indices])]
 
         return [{'id': self.ids[i], 'embedding': self.embeddings[i], 'score': scores[i]} for i in top_k_indices]
@@ -176,7 +186,8 @@ class PCAIndex(AbstractIndex):
         query_normalized = norm_np(transformed_query) if self.normalize else transformed_query
 
         scores = query_normalized @ dataset_vectors.T
-        partitioned_indices = np.argpartition(-scores, kth=k)[:k]
+        arg_k = k if k < len(scores) else len(scores) - 1
+        partitioned_indices = np.argpartition(-scores, kth=arg_k)[:k]
         top_k_indices = partitioned_indices[np.argsort(-scores[partitioned_indices])]
 
         return [{'id': self.ids[i], 'embedding': self.embeddings[i], 'score': scores[i]} for i in top_k_indices]
@@ -187,11 +198,22 @@ class DB:
     Database class for managing tables and indexes.
     """
     def __init__(self, path):
-        self.conn = sqlite3.connect(path)
+        self.conn = sqlite3.connect(path, check_same_thread=False)
         self.c = self.conn.cursor()
         self.table_metadata = {}
         self.indexes = {}
         self._init_db()
+
+    def info(self):
+        """
+        Get information about all tables in the database.
+        """
+        info = {}
+        info['tables'] = self.table_metadata
+        info['indexes'] = [str(index) for index in self.indexes.values()]
+        info['num_tables'] = len(self.table_metadata)
+        info['num_indexes'] = len(self.indexes)
+        return info
 
     def _init_db(self):
         """
@@ -212,7 +234,13 @@ class DB:
             table_name, dimension, index_type, normalize, allow_index_updates, is_index_active, use_uuid = row
             self.table_metadata[table_name] = {'dimension': dimension, 'index_type': index_type, 'normalize': normalize, 'allow_index_updates': allow_index_updates, 'is_index_active': is_index_active, 'use_uuid': use_uuid}
             if is_index_active:
-                self.create_index(table_name, index_type, dimension, normalize, allow_index_updates)
+                try: 
+                    self.create_index(table_name, index_type, dimension, normalize, allow_index_updates)
+                except Exception as e:
+                    print(f"Error loading index for table {table_name}: {e}. Clearing index...")
+                    del self.table_metadata[table_name]
+                    if self.indexes.get(table_name) is not None:
+                        del self.indexes[table_name]
 
     def create_index(self, table_name, index_type, normalize, allow_index_updates=None, n_components=None):
         """
@@ -285,6 +313,8 @@ class DB:
         self.c.execute(f"DROP TABLE {table_name}")
         self.c.execute("DELETE FROM table_metadata WHERE table_name = ?", (table_name,))
         self.conn.commit()
+        if self.indexes.get(table_name) is not None:
+            del self.indexes[table_name]
         self.table_metadata.pop(table_name)
         
     def delete_index(self, table_name):
@@ -293,8 +323,7 @@ class DB:
         """
         if self.indexes.get(table_name) is None:
             raise ValueError(f"Index for table {table_name} does not exist")
-        self.indexes[table_name].delete()
-        self.indexes.pop(table_name)
+        del self.indexes[table_name]
         self.table_metadata[table_name]['is_index_active'] = False
         self.table_metadata[table_name]['index_type'] = None
         self.table_metadata[table_name]['normalize'] = None
@@ -339,6 +368,7 @@ class DB:
         placeholder = ", ".join(["?"] * len(ids))  # Generate placeholders for query
         self.c.execute(f"SELECT id, content FROM {table_name} WHERE id IN ({placeholder})", ids)
         content_dict = {id: content for id, content in self.c.fetchall()}
+
 
         # Add the content to the items
         for item in items:
