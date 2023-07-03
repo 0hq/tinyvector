@@ -4,7 +4,7 @@
 
 
 <p align="center">
-    <b>TinyVector - the tiny, least-dumb, speedy vector embedding database</b>. <br />
+    <b>tinyvector - the tiny, least-dumb, speedy vector embedding database</b>. <br />
     No, you don't need a vector database. You need tinyvector.
 </p>
 
