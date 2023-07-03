@@ -42,12 +42,6 @@ What are embeddings?
 
 Read OpenAI's [explanation](https://platform.openai.com/docs/guides/embeddings/what-are-embeddings).  
 
-## Known Issues
-```
-# Major bugs:
-Data corruption SQLite error? Stored vectors end up changing. Replicate by creating a table, inserting vectors, creating an index and then screwing around till an error happens. Dims end up unmatched (might be the blob functions or the norm functions most likely, but doesn't explain why the database is changing).
-PCA is not tested, neither is immutable Brute Force index.
-```
 
 ## Get involved
 
@@ -60,6 +54,14 @@ Some ideas for first pulls:
 - Add embedding functions for easy adding text (sentence transformers, OpenAI, Cohere, etc.)
 -  Let's start GPU accelerating with a Pytorch index. GPUs are great at matmuls -> NN search with a fused kernel. Let's put 32 million vectors on a single GPU.
 - Help write unit and integration tests.
+- See all [active issues](https://github.com/0hq/tinyvector/issues)!
+
+### Known Issues
+```
+# Major bugs:
+Data corruption SQLite error? Stored vectors end up changing. Replicate by creating a table, inserting vectors, creating an index and then screwing around till an error happens. Dims end up unmatched (might be the blob functions or the norm functions most likely, but doesn't explain why the database is changing).
+PCA is not tested, neither is immutable Brute Force index.
+```
 
 
 ## License
