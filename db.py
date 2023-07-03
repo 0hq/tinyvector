@@ -1,13 +1,24 @@
 import sqlite3
-import pickle
 import numpy as np
 from abc import ABC, abstractmethod
 from sklearn.decomposition import PCA
-import uuid
+import psutil
 
-def norm(datum):
+def norm_np(datum):
     axis = None if datum.ndim == 1 else 1
     return datum / np.linalg.norm(datum, axis=axis, keepdims=True)
+
+def norm_python(datum):
+    datum = np.array(datum)
+    result = norm_np(datum)
+    return result.tolist()
+
+
+def array_to_blob(array):
+    return array.tobytes()
+
+def blob_to_array(blob):
+    return np.frombuffer(blob, dtype=np.float32)
 
 class AbstractIndex(ABC):
     def __init__(self, table_name, type, num_vectors, dimension, allow_updates=False):
@@ -15,7 +26,6 @@ class AbstractIndex(ABC):
         self.type = type
         self.num_vectors = num_vectors
         self.dimension = dimension
-        self.allow_updates = allow_updates
 
     def __len__(self):
         return self.num_vectors
@@ -28,90 +38,72 @@ class AbstractIndex(ABC):
         pass
 
     @abstractmethod
-    def get_all(self):
-        pass
-
-    @abstractmethod
-    def get_by_id(self, id):
-        pass
-
-    @abstractmethod
     def get_similarity(self, query, k):
         pass
 
 
-class BaseIndex(AbstractIndex):
-    def __init__(self, embeddings, ids, normalize, allow_updates=True):
-        super().__init__('base', len(embeddings), len(embeddings[0]), allow_updates)  # Initialize name/len attribute in parent class
-        self.embeddings = norm(embeddings) if normalize else embeddings
+class BaseIndexImmutable(AbstractIndex):
+    def __init__(self, table_name, dimension, normalize, embeddings, ids):
+        super().__init__(table_name, 'base', len(embeddings), dimension)  
+        self.embeddings = norm_np(embeddings) if normalize else embeddings
         self.ids = ids
         self.normalize = normalize
         
     def add_vector(self, id, embedding):
-        if not self.allow_updates:
-            raise ValueError("Cannot add vectors to a non-updatable index")
+        raise NotImplementedError("This index does not support vector addition. Please use BaseIndexMutable if updates are required.")
+        
+    def get_similarity(self, query, k):
+        if len(query) != self.dimension:
+            raise ValueError(f"Expected query of dimension {self.dimension}, got {len(query)}")
+
+        query_normalized = norm_np(query) if self.normalize else query
+        scores = query_normalized @ self.embeddings.T
+        partitioned_indices = np.argpartition(-scores, kth=k)[:k]
+        top_k_indices = partitioned_indices[np.argsort(-scores[partitioned_indices])]
+
+        return [{'id': self.ids[i], 'embedding': self.embeddings[i], 'score': scores[i]} for i in top_k_indices]
+
+
+class BaseIndexMutable(AbstractIndex):
+    def __init__(self, table_name, dimension, normalize, embeddings, ids):
+        super().__init__(table_name, 'base', len(embeddings), dimension) 
+        self.embeddings = norm_python(embeddings) if normalize else embeddings.tolist()
+        self.ids = ids
+        self.normalize = normalize
+        
+    def add_vector(self, id, embedding):
         if len(embedding) != self.dimension:
             raise ValueError(f"Expected embedding of dimension {self.dimension}, got {len(embedding)}")
         self.ids.append(id)
-        self.embeddings.append(norm(embedding) if self.normalize else embedding)
+        self.embeddings.append(norm_python(embedding) if self.normalize else embedding.tolist())
         self.num_vectors += 1
-
-    def get_all(self):
-        return {'id': self.ids, 'embedding': self.embeddings}
-
-    def get_by_id(self, id):
-        index = self.ids.index(id)
-        return {'id': id, 'embedding': self.embeddings[index]}
-
-    # Time complexity: O(n_vectors + k log k)
+        
     def get_similarity(self, query, k):
-        # Check dimensions of query
         if len(query) != self.dimension:
             raise ValueError(f"Expected query of dimension {self.dimension}, got {len(query)}")
-        
-        # Normalize query 
-        dataset_vectors = np.array(self.embeddings)
-        query_normalized = norm(query) if self.normalize else query
 
-        # Compute cosine similarity between query and each item in the dataset
+        query_normalized = norm_np(query) if self.normalize else query
+        dataset_vectors = np.array(self.embeddings)
         scores = query_normalized @ dataset_vectors.T
         partitioned_indices = np.argpartition(-scores, kth=k)[:k]
         top_k_indices = partitioned_indices[np.argsort(-scores[partitioned_indices])]
 
-        # Return the top-k most-similar items
-        return [self.get_by_id(self.ids[i]) for i in top_k_indices]
+        return [{'id': self.ids[i], 'embedding': self.embeddings[i], 'score': scores[i]} for i in top_k_indices]
 
 
 
 class PCAIndex(AbstractIndex):
-    def __init__(self, ids, embeddings, n_components, normalize, allow_updates=False):
-        if allow_updates:
-            print("Warning: PCA index is not intended to be used with allow_updates=True. This will result in reduced performance until the next time index is rebuilt.")
-        super().__init__('pca', len(embeddings), n_components, allow_updates)  # Initialize name/len attribute in parent class
+    def __init__(self, table_name, dimension, n_components, normalize, embeddings, ids):
+        super().__init__(table_name, 'pca', len(embeddings), n_components)  # Initialize name/len attribute in parent class
         self.ids = ids
         self.pca = PCA(n_components)
-        self.original_dimension = len(embeddings[0])
+        self.original_dimension = dimension
         self.embeddings = self.pca.fit_transform(embeddings)
-        self.embeddings = norm(self.embeddings) if normalize else self.embeddings
+        self.embeddings = norm_np(self.embeddings) if normalize else self.embeddings
         self.normalize = normalize
 
     def add_vector(self, id, embedding):
-        if not self.allow_updates:
-            raise ValueError("Cannot add vectors to a non-updatable index")
-        print("Warning: PCA index is not intended to be used with allow_updates=True. This will result in reduced performance until the next time index is rebuilt.")
-        if len(embedding) != self.original_dimension:
-            raise ValueError(f"Expected embedding of dimension {self.original_dimension}, got {len(embedding)}")
-        self.ids.append(id)
-        transformed_embedding = self.pca.transform(embedding.reshape(1, -1))
-        self.embeddings.append(norm(transformed_embedding) if self.normalize else transformed_embedding)
-        self.num_vectors += 1
-
-    def get_all(self):
-        return {'id': self.ids, 'embedding': self.embeddings}
-
-    def get_by_id(self, id):
-        index = self.ids.index(id)
-        return {'id': id, 'embedding': self.embeddings[index]}
+        raise NotImplementedError("This index does not support vector addition. Please use BaseIndexMutable if updates are required.")
 
     # Time complexity: O(n_vectors + k log k)
     def get_similarity(self, query, k):
@@ -119,10 +111,10 @@ class PCAIndex(AbstractIndex):
         if len(query) != self.original_dimension:
             raise ValueError(f"Expected query of dimension {self.original_dimension}, got {len(query)}")
         
-        # Transform query to PCA space
-        dataset_vectors = np.array(self.embeddings)   
-        transformed_query = self.pca.transform(query.reshape(1, -1))
-        query_normalized = norm(transformed_query) if self.normalize else transformed_query
+        # Transform query to PCA spac
+        dataset_vectors = self.embeddings
+        transformed_query = self.pca.transform(query)
+        query_normalized = norm_np(transformed_query) if self.normalize else transformed_query
 
         # Compute cosine similarity between query and each item in the dataset
         scores = query_normalized @ dataset_vectors.T
@@ -130,249 +122,124 @@ class PCAIndex(AbstractIndex):
         top_k_indices = partitioned_indices[np.argsort(-scores[partitioned_indices])]
 
         # Return the top-k most-similar items
-        return [self.get_by_id(self.ids[i]) for i in top_k_indices]
+        return [{ 'id': self.ids[i], 'embedding': self.embeddings[i], 'score': scores[i] } for i in top_k_indices]
 
-class SQLiteDatabase:
-    def __init__(self, filename, dimensions, load_indexes=True):
-        self.filename = filename
-        self.dimensions = dimensions
-        self.conn = sqlite3.connect(filename)
-        self.conn.text_factory = bytes
 
-        # Create the table if it doesn't exist
-        self.conn.execute(
-            "CREATE TABLE IF NOT EXISTS main_table (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL, embedding BLOB NOT NULL)"
-        )
-        # Create index table if it doesn't exist
-        self.conn.execute(
-            "CREATE TABLE IF NOT EXISTS index_metadata (name TEXT PRIMARY KEY, type TEXT NOT NULL, num_vectors INTEGER NOT NULL, is_active BOOLEAN NOT NULL, normalize BOOLEAN NOT NULL, dimension INTEGER NOT NULL)")
-        self.conn.commit()
-
-        # Create indexes
+class DB:
+    def __init__(self, path):
+        self.conn = sqlite3.connect(path)
+        self.c = self.conn.cursor()
+        self.table_metadata = {}
         self.indexes = {}
-        if load_indexes:
-            self.load_indexes()
+        self._init_db()
 
-    def insert(self, text, embedding):
-        # Convert data to bytes using pickle
-        embedding_as_bytes = pickle.dumps(embedding)
-
-        try:
-            cursor = self.conn.execute(
-                "INSERT INTO main_table (text, embedding) VALUES (?, ?)",
-                (text, embedding_as_bytes)
-            )
-            self.conn.commit()
-        except sqlite3.Error as e:
-            print(f"Insertion error: {e}")
-            return None
-
-        return cursor.lastrowid  # Return the ID of the new record
-    
-    def insert_many(self, texts, embeddings):
-        data = [(text, pickle.dumps(embedding)) for text, embedding in zip(texts, embeddings)]
-        try:
-            cursor = self.conn.executemany(
-                "INSERT INTO main_table (text, embedding) VALUES (?, ?)",
-                data
-            )
-            self.conn.commit()
-        except sqlite3.Error as e:
-            print(f"Insertion error: {e}")
-            return None
-
-        return cursor.lastrowid
-
-    def get_by_id(self, id):
-        try:
-            cursor = self.conn.execute(
-                "SELECT * FROM main_table WHERE id = ?",
-                (id,)
-            )
-        except sqlite3.Error as e:
-            print(f"Selection error: {e}")
-            return None
-
-        row = cursor.fetchone()
-        if row is None:
-            return None
-
-        # Parse the result
-        return self._parse_row(row)
-
-    def get_all(self):
-        try:
-            cursor = self.conn.execute("SELECT * FROM main_table")
-        except sqlite3.Error as e:
-            print(f"Selection error: {e}")
-            return None
-
-        result = []
-        for row in cursor:
-            result.append(self._parse_row(row))
-
-        return result
-
-    def update(self, id, text, embedding):
-        # Convert data to bytes using pickle
-        embedding_as_bytes = pickle.dumps(embedding)
-
-        try:
-            self.conn.execute(
-                "UPDATE main_table SET text = ?, embedding = ? WHERE id = ?",
-                (text, embedding_as_bytes, id)
-            )
-            self.conn.commit()
-        except sqlite3.Error as e:
-            print(f"Update error: {e}")
-            return None
-
-        return id  # Return the ID of the updated record
-
-    def delete(self, id):
-        try:
-            self.conn.execute(
-                "DELETE FROM main_table WHERE id = ?",
-                (id,)
-            )
-            self.conn.commit()
-        except sqlite3.Error as e:
-            print(f"Deletion error: {e}")
-            return False
-
-        return True
-
-    def _parse_row(self, row):
-        # This helper function parses a row and returns it as a dictionary.
-        id, text, embedding_as_bytes = row
-        embedding = pickle.loads(embedding_as_bytes)
-
-        return {'id': id, 'text': text, 'embedding': embedding}
-    
-    def load_indexes(self):
-        try:
-            # Retrieve the embeddings from the main table
-            all_rows = self.get_all()
-            ids = [row['id'] for row in all_rows]
-            embeddings = [row['embedding'] for row in all_rows]
-
-            # Retrieve index metadata from the database and instantiate indexes accordingly
-            cursor = self.conn.execute("SELECT * FROM index_metadata")
-            for index_row in cursor:
-                index_name, index_type, _, is_active, normalize, dimension = index_row
-                if not is_active:
-                    continue
-                if index_type == 'Base':
-                    self.indexes[index_name] = BaseIndex(embeddings, ids, normalize)
-                elif index_type == 'PCA':
-                    self.indexes[index_name] = PCAIndex(embeddings, ids, dimension, normalize)
-                else:
-                    raise ValueError(f"Unknown index type: {index_type}")
-        except MemoryError:
-            print("Failed to load all indexes due to insufficient memory. Please deactivate some indexes and try again.")
-            return None
-
-    def create_index(self, index_type, index_name=None, dimensions=None, cosine_similarity=True):
-        if index_type not in ['Base', 'PCA']:
-            print("Unknown index type.")
-            return None
-        if index_name is None:
-            index_name = index_type + '_' + str(uuid.uuid4())
-        if index_type == 'PCA' and dimensions is None:
-            print("Please specify the dimension for the index.")
-            return None
-        if dimensions is None:
-            dimensions = self.dimensions
-
-        # Check if the index already exists
-        if self.index_exists(index_name):
-            print(f"Index {index_name} already exists.")
-            return None
-        
-        # Insert index metadata into the database
-        self.conn.execute(
-            "INSERT INTO index_metadata (index_name, index_type, num_vectors, is_active, normalize, dimension) VALUES (?, ?, ?, ?, ?, ?)",
-            (index_name, index_type, len(self), True, cosine_similarity, dimensions)
-        )
+    def _init_db(self):
+        self.c.execute("CREATE TABLE IF NOT EXISTS table_metadata (table_name TEXT PRIMARY KEY, dimension INTEGER, index_type TEXT, normalize BOOLEAN, allow_index_updates BOOLEAN, is_active BOOLEAN)")
         self.conn.commit()
+        self._load_metadata()
 
-        # Create the index
-        self.rebuild_index(index_name)
+    def _load_metadata(self):
+        self.table_metadata = {}
+        select_query = "SELECT * FROM table_metadata"
+        for row in self.c.execute(select_query):
+            table_name, dimension, index_type, normalize, allow_index_updates, is_index_active = row
+            self.table_metadata[table_name] = {'dimension': dimension, 'index_type': index_type, 'normalize': normalize, 'allow_index_updates': allow_index_updates, 'is_index_active': is_index_active}
+            if is_index_active:
+                self.create_index(table_name, index_type, dimension, normalize, allow_index_updates)
 
-    def rebuild_index(self, index_name):
-        # Retrieve the index from the database
-        cursor = self.conn.execute(
-            "SELECT * FROM index_metadata WHERE index_name = ?",
-            (index_name,)
-        )
-        index_row = cursor.fetchone()
-        if index_row is None:
-            print(f"Index {index_name} does not exist.")
-            return None
+    def create_index(self, table_name, index_type, normalize, allow_index_updates=None, n_components=None):
+        if psutil.virtual_memory().available < 0.1 * psutil.virtual_memory().total:
+            raise MemoryError("System is running out of memory")
+        def get_data(select_query):
+            self.c.execute(select_query)
+            rows = self.c.fetchall()
+            ids = [row[0] for row in rows]
+            embeddings = [blob_to_array(row[1]) for row in rows]
+            return ids, embeddings
         
-        index_name, index_type, _, is_active, normalize, dimension = index_row
-
-        if not is_active:
-            print(f"Index {index_name} is not active.")
-            return None
-
-        # Retrieve the embeddings from the main table
-        all_rows = self.get_all()
-        ids = [row['id'] for row in all_rows]
-        embeddings = [row['embedding'] for row in all_rows]
+        if self.table_metadata.get(table_name) is None:
+            raise ValueError(f"Table {table_name} does not exist. Create the table first.")
         
-        # Create a new index of the same type
-        if index_type == 'Base':
-            new_index = BaseIndex(embeddings, ids, normalize)
-        elif index_type == 'PCA':
-            new_index = PCAIndex(embeddings, ids, dimension, normalize)
+        if self.indexes.get(table_name) is not None:
+            raise ValueError(f"Index for table {table_name} already exists. Delete the index first if you want to rebuild it.")
+        
+        if allow_index_updates is None:
+            allow_index_updates = True if index_type == 'base' else False
+        if allow_index_updates is True and index_type == 'pca':
+            raise print("Warning: PCA index is not intended to be used with allow_updates=True. This will result in reduced performance until the next time index is rebuilt.")
+        
+        dimension = self.table_metadata[table_name]['dimension']
+        if index_type == 'base':
+            ids, embeddings = get_data(f"SELECT * FROM {table_name}")
+            if allow_index_updates:
+                self.indexes[table_name] = BaseIndexMutable(table_name, dimension, normalize, embeddings, ids)
+            else:
+                self.indexes[table_name] = BaseIndexImmutable(table_name, dimension, normalize, embeddings, ids)
+        elif index_type == 'pca':
+            if n_components is None:
+                raise ValueError("n_components must be specified for PCA index")
+            ids, embeddings = get_data(f"SELECT * FROM {table_name}") # In the future, we can just load the cached PCA vectors directly from the DB
+            self.indexes[table_name] = PCAIndex(table_name, dimension, n_components, normalize, embeddings, ids)
         else:
-            raise ValueError(f"Unknown index type: {index_type}")
+            raise ValueError(f"Unknown index type {index_type}")
         
-        # Replace the index in the dictionary
-        self.indexes[index_name] = new_index
-
-    def delete_index(self, index_name):
-        # As before, but also delete the record in the index_metadata table
-        self.conn.execute(
-            "DELETE FROM index_metadata WHERE index_name = ?",
-            (index_name,)
-        )
+        # Update metadata
+        self.table_metadata[table_name]['index_type'] = index_type
+        self.table_metadata[table_name]['is_index_active'] = True
+        self.table_metadata[table_name]['allow_index_updates'] = allow_index_updates
+        self.table_metadata[table_name]['normalize'] = normalize
+        self.c.execute("UPDATE table_metadata SET index_type = ?, is_active = ?, allow_index_updates = ?, normalize = ? WHERE table_name = ?", (index_type, True, allow_index_updates, normalize, table_name))
         self.conn.commit()
 
-        # Delete the index from the dictionary
-        del self.indexes[index_name]
 
-    def index_exists(self, index_name):
-        # Retrieve the index from the database
-        cursor = self.conn.execute(
-            "SELECT * FROM index_metadata WHERE index_name = ?",
-            (index_name,)
-        )
-        index_row = cursor.fetchone()
-        return index_row is not None
-
-    def set_index_activity(self, index_name, is_active):
-        if not self.index_exists(index_name):
-            print(f"Index {index_name} does not exist.")
-            return None
-
-        # As before, but also update the record in the index_metadata table
-        self.conn.execute(
-            "UPDATE index_metadata SET is_active = ? WHERE index_name = ?",
-            (is_active, index_name)
-        )
+    def create_table(self, table_name, dimension):
+        if self.table_metadata.get(table_name) is not None:
+            raise ValueError(f"Table {table_name} already exists")
+        self.c.execute(f"CREATE TABLE {table_name} (id INTEGER PRIMARY KEY, embedding BLOB)")
+        self.c.execute("INSERT INTO table_metadata VALUES (?, ?, ?, ?, ?, ?)", (table_name, dimension, None, None, None, False))
         self.conn.commit()
 
-        # Update the index
-        self.rebuild_index(index_name)
+        # Update metadata
+        self.table_metadata[table_name] = {'dimension': dimension, 'index_type': None, 'normalize': None, 'allow_index_updates': None, 'is_index_active': False}
 
-    def query(self, index_name, query_embedding, k=10):
-        # Retrieve the index from the dictionary
-        index = self.indexes[index_name]
+    def delete_table(self, table_name):
+        if self.table_metadata.get(table_name) is None:
+            raise ValueError(f"Table {table_name} does not exist")
+        self.c.execute(f"DROP TABLE {table_name}")
+        self.c.execute("DELETE FROM table_metadata WHERE table_name = ?", (table_name,))
+        self.conn.commit()
+        self.table_metadata.pop(table_name)
+        
+    def delete_index(self, table_name):
+        if self.indexes.get(table_name) is None:
+            raise ValueError(f"Index for table {table_name} does not exist")
+        self.indexes[table_name].delete()
+        self.indexes.pop(table_name)
+        self.table_metadata[table_name]['is_index_active'] = False
+        self.table_metadata[table_name]['index_type'] = None
+        self.table_metadata[table_name]['normalize'] = None
+        self.table_metadata[table_name]['allow_index_updates'] = None
+        self.c.execute("UPDATE table_metadata SET index_type = NULL, normalize = NULL, allow_index_updates = NULL, is_active = 0 WHERE table_name = ?", (table_name,))
+        self.conn.commit()
 
-        # Perform the query
-        results = index.get_similarity(query_embedding, k)
+    def insert(self, table_name, id, embedding, defer_index_update=False):
+        if psutil.virtual_memory().available < 0.1 * psutil.virtual_memory().total:
+            raise MemoryError("System is running out of memory")
+        insert_query = f"INSERT INTO {table_name} VALUES (?, ?)"
+        self.c.execute(insert_query, (id, array_to_blob(embedding)))
+        self.conn.commit()
 
-        # Return the results
-        return results
+        if self.table_metadata[table_name]['is_index_active'] is True and self.table_metadata[table_name]['allow_index_updates'] is True and defer_index_update is False:
+            self.indexes[table_name].add_vector(id, embedding)
+
+    def query(self, table_name, query, k):
+        if self.table_metadata.get(table_name) is None:
+            raise ValueError(f"Table {table_name} does not exist")
+        if self.table_metadata[table_name]['is_index_active'] is False:
+            raise ValueError(f"Index for table {table_name} does not exist")
+        
+        items = self.indexes[table_name].get_similarity(query, k)
+
+        # Get content from DB later
+
+        return items
