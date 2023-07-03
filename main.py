@@ -1,13 +1,15 @@
-from flask import Flask, request, jsonify
-from code import DB 
-import numpy as np
-import jwt
-from functools import wraps
-from dotenv import load_dotenv
-import os
 import logging
+import os
+from functools import wraps
 
-logging.basicConfig(filename='app.log', level=logging.INFO, 
+import jwt
+import numpy as np
+from dotenv import load_dotenv
+from flask import Flask, jsonify, request
+
+from vectordb import DB
+
+logging.basicConfig(filename='logs/app.log', level=logging.INFO, 
                     format='%(asctime)s %(levelname)s %(name)s %(threadName)s : %(message)s')
 
 app = Flask(__name__)
