@@ -196,7 +196,7 @@ class DB:
     def create_table(self, table_name, dimension, use_uuid):
         if self.table_metadata.get(table_name) is not None:
             raise ValueError(f"Table {table_name} already exists")
-        self.c.execute(f"CREATE TABLE {table_name} (id TEXT PRIMARY KEY, embedding BLOB)")
+        self.c.execute(f"CREATE TABLE {table_name} (id TEXT PRIMARY KEY, embedding BLOB, content TEXT)")
         self.c.execute("INSERT INTO table_metadata VALUES (?, ?, ?, ?, ?, ?, ?)", (table_name, dimension, None, None, None, False, use_uuid))
         self.conn.commit()
 
@@ -223,7 +223,7 @@ class DB:
         self.c.execute("UPDATE table_metadata SET index_type = NULL, normalize = NULL, allow_index_updates = NULL, is_active = 0 WHERE table_name = ?", (table_name,))
         self.conn.commit()
 
-    def insert(self, table_name, id, embedding, defer_index_update=False):
+    def insert(self, table_name, id, embedding, content, defer_index_update=False):
         if psutil.virtual_memory().available < 0.1 * psutil.virtual_memory().total:
             raise MemoryError("System is running out of memory")
 
@@ -234,8 +234,8 @@ class DB:
         elif id is None:
             raise ValueError("This table uses custom IDs. Please provide an ID.")
 
-        insert_query = f"INSERT INTO {table_name} VALUES (?, ?)"
-        self.c.execute(insert_query, (id, array_to_blob(embedding)))
+        insert_query = f"INSERT INTO {table_name} VALUES (?, ?, ?)"
+        self.c.execute(insert_query, (id, array_to_blob(embedding), content))
         self.conn.commit()
 
         if self.table_metadata[table_name]['is_index_active'] is True and self.table_metadata[table_name]['allow_index_updates'] is True and defer_index_update is False:
@@ -249,6 +249,14 @@ class DB:
         
         items = self.indexes[table_name].get_similarity(query, k)
 
-        # Get content from DB later
+        # Get content from DB in a single query
+        ids = [item['id'] for item in items]
+        placeholder = ", ".join(["?"] * len(ids))  # Generate placeholders for query
+        self.c.execute(f"SELECT id, content FROM {table_name} WHERE id IN ({placeholder})", ids)
+        content_dict = {id: content for id, content in self.c.fetchall()}
+
+        # Add the content to the items
+        for item in items:
+            item['content'] = content_dict.get(item['id'])
 
         return items
