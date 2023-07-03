@@ -7,6 +7,9 @@
     <b>tinyvector - the tiny, least-dumb, speedy vector embedding database</b>. <br />
     No, you don't need a vector database. You need tinyvector.
 </p>
+<p align="center">
+    <i>In beta: prod-ready by August</i>. <br />
+</p>
 
 ## Features
 - __Tiny__: It's in the name. It's just a Flask server, SQLite DB, and Numpy indexes. Extremely easy to customize, under 500 lines of code.
