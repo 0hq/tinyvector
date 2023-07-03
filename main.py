@@ -15,8 +15,9 @@ def create_table():
     data = request.get_json()
     table_name = data.get('table_name')
     dimension = data.get('dimension')
+    use_uuid = data.get('use_uuid', False)
     try:
-        db.create_table(table_name, dimension)
+        db.create_table(table_name, dimension, use_uuid)
         return jsonify({'status': 'success'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 400
@@ -35,12 +36,13 @@ def delete_table():
 def insert():
     data = request.get_json()
     table_name = data.get('table_name')
-    id = data.get('id')
+    id = data.get('id') # None for UUID tables, otherwise a string
     embedding = data.get('embedding')
+    content = data.get('content', None)
     defer_index_update = data.get('defer_index_update', False)
     try:
         embedding = np.array(embedding)
-        db.insert(table_name, id, embedding, defer_index_update)
+        db.insert(table_name, id, embedding, content, defer_index_update)
         return jsonify({'status': 'success'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 400
