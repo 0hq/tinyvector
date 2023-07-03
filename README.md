@@ -17,6 +17,7 @@
 ### Soon
 - __Powerful Queries__: Tinyvector is being upgraded with full SQL querying functionality, something missing from most other databases.
 - __Integrated Models__: Soon you won't have to bring your own vectors, just generate them on the server automaticaly. Will support SBert, Hugging Face models, OpenAI, Cohere, etc.
+- __Python/JS Client__: We'll add a comprehensive Python and Javascript package for easy integration with tinyvector in the next two weeks.
 
 ## We're better than ...
 
