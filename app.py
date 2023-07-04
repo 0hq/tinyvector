@@ -20,6 +20,7 @@ from models.db import (
     TableCreationBody,
     TableDeletionBody,
     TableQueryObject,
+    TableQueryResult,
 )
 from models.response import ErrorMessage
 from utils.pydantic import pydantic_to_dict
@@ -117,13 +118,15 @@ def info():
         return DatabaseInfo(**info), 200
     except Exception as e:
         app.logger.error(f"Error while retrieving info: {str(e)}")
-        return jsonify({"error": str(e)}), 400
+        return ErrorMessage(error=f"Error while retrieving info: {str(e)}"), 400
 
 
 @app.route("/create_table", methods=["POST"])
 @token_required
 @api.validate(
-    body=TableCreationBody, resp=Response(HTTP_200=SuccessMessage), tags=["DB"]
+    body=TableCreationBody,
+    resp=Response(HTTP_200=SuccessMessage, HTTP_400=ErrorMessage),
+    tags=["DB"],
 )
 @pydantic_to_dict
 def create_table():
@@ -149,7 +152,9 @@ def create_table():
 
 @app.route("/delete_table", methods=["DELETE"])
 @api.validate(
-    body=TableDeletionBody, resp=Response(HTTP_200=SuccessMessage), tags=["DB"]
+    body=TableDeletionBody,
+    resp=Response(HTTP_200=SuccessMessage, HTTP_400=ErrorMessage),
+    tags=["DB"],
 )
 @token_required
 @pydantic_to_dict
@@ -219,6 +224,7 @@ def insert():
 @token_required
 @api.validate(
     body=TableQueryObject,
+    resp=Response(HTTP_200=TableQueryResult, HTTP_400=ErrorMessage),
     tags=["DB"],
 )
 @pydantic_to_dict

@@ -44,6 +44,17 @@ class TableQueryObject(BaseModel):
     k: int
 
 
+class TableQueryResultInstance(BaseModel):
+    content: str
+    embedding: list[int]
+    id: str
+    score: float
+
+
+class TableQueryResult(BaseModel):
+    items: list[TableQueryResultInstance]
+
+
 class TableMetadata(BaseModel):
     allow_index_updates: bool
     dimension: int
