@@ -23,6 +23,11 @@
 - __Integrated Models__: Soon you won't have to bring your own vectors, just generate them on the server automaticaly. Will support SBert, Hugging Face models, OpenAI, Cohere, etc.
 - __Python/JS Client__: We'll add a comprehensive Python and Javascript package for easy integration with tinyvector in the next two weeks.
 
+## Versions
+
+🦀 tinyvector in Rust: [tinyvector-rs](https://github.com/m1guelpf/tinyvector-rs)
+🐍 tinyvector in Python: [tinyvector](https://github.com/0hq/tinyvector)
+
 ## We're better than ...
 
 In most cases, most vector databases are overkill for something simple like:
