@@ -14,7 +14,7 @@
 
 ## Features
 - __Tiny__: It's in the name. It's just a Flask server, SQLite DB, and Numpy indexes. Extremely easy to customize, under 500 lines of code.
-- __Fast__: Tinyvector already beats other advanced vector databases when it comes to speed on small to medium datasets.
+- __Fast__: Tinyvector wlll have comparable speed to advanced vector databases when it comes to speed on small to medium datasets.
 - __Vertically Scales__: Tinyvector stores all indexes in memory for fast querying. Very easy to scale up to 100 million+ vector dimensions without issue.
 - __Open Source__: MIT Licensed, free forever.
 
