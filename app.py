@@ -243,12 +243,18 @@ def query():
         query = np.array(query)
         items = db.query(table_name, query, k)
         app.logger.info(f"Query performed successfully on table {table_name}")
-        return jsonify({"items": items}), 200
+        print(items)
+        return TableQueryResult(items=items), 200
     except Exception as e:
         app.logger.error(
             f"Error while performing query on table {table_name}: {str(e)}"
         )
-        return jsonify({"error": str(e)}), 400
+        return (
+            ErrorMessage(
+                error=f"Error while performing query on table {table_name}: {str(e)}"
+            ),
+            400,
+        )
 
 
 @app.route("/create_index", methods=["POST"])
