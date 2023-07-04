@@ -25,8 +25,8 @@
 
 ## Versions
 
-🦀 tinyvector in Rust: [tinyvector-rs](https://github.com/m1guelpf/tinyvector-rs)
-🐍 tinyvector in Python: [tinyvector](https://github.com/0hq/tinyvector)
+🦀 tinyvector in Rust: [tinyvector-rs](https://github.com/m1guelpf/tinyvector-rs)  
+🐍 tinyvector in Python: [tinyvector](https://github.com/0hq/tinyvector)  
 
 ## We're better than ...
 
