@@ -90,7 +90,8 @@ class BruteForceIndexImmutable(AbstractIndex):
         super().__init__(
             table_name, "brute_force_immutable", len(embeddings), dimension
         )
-        self.embeddings = norm_np(embeddings) if normalize else embeddings
+        # TODO: Validate if this is the right fit. I hope it is ... ?
+        self.embeddings = norm_np(np.array(embeddings)) if normalize else embeddings
         self.ids = ids
         self.normalize = normalize
 
@@ -132,6 +133,7 @@ class BruteForceIndexMutable(AbstractIndex):
 
     def __init__(self, table_name, dimension, normalize, embeddings, ids):
         super().__init__(table_name, "brute_force_mutable", len(embeddings), dimension)
+
         if len(embeddings) > 0 and dimension != len(embeddings[0]):
             raise ValueError(
                 f"Expected embeddings of dimension {self.dimension}, got {len(embeddings[0])}"
@@ -283,6 +285,7 @@ class DB:
                 use_uuid,
             ) = row
             self.table_metadata[table_name] = {
+                "table_name": table_name,
                 "dimension": dimension,
                 "index_type": index_type,
                 "normalize": normalize,
@@ -290,15 +293,17 @@ class DB:
                 "is_index_active": is_index_active,
                 "use_uuid": use_uuid,
             }
+
             if is_index_active:
                 try:
                     self.create_index(
                         table_name,
                         index_type,
-                        dimension,
                         normalize,
                         allow_index_updates,
+                        dimension,
                     )
+
                 except Exception as e:
                     print(
                         f"Error loading index for table {table_name}: {e}. Clearing index..."
@@ -318,6 +323,7 @@ class DB:
         """
         Create an index on the specified table.
         """
+
         if psutil.virtual_memory().available < 0.1 * psutil.virtual_memory().total:
             raise MemoryError("System is running out of memory")
 
@@ -348,11 +354,14 @@ class DB:
         dimension = self.table_metadata[table_name]["dimension"]
         if index_type == "brute_force":
             ids, embeddings = get_data(f"SELECT * FROM {table_name}")
+            print("Executed")
+            print(ids, embeddings)
             if allow_index_updates:
                 self.indexes[table_name] = BruteForceIndexMutable(
                     table_name, dimension, normalize, embeddings, ids
                 )
             else:
+                print("---This was executed---")
                 self.indexes[table_name] = BruteForceIndexImmutable(
                     table_name, dimension, normalize, embeddings, ids
                 )
@@ -377,10 +386,13 @@ class DB:
         )
         self.conn.commit()
 
-    def create_table_and_index(self, table_name: str, table_config: TableMetadata):
+    def create_table_and_index(self, table_config: TableMetadata):
         """
         Creates a new table and index in the database
         """
+
+        table_name = table_config.table_name
+
         # We first validate that the table does not exist
         if table_name in self.table_metadata:
             raise ValueError(f"Table {table_name} already exists")
@@ -390,8 +402,37 @@ class DB:
             f"CREATE TABLE {table_name} (id TEXT PRIMARY KEY, embedding BLOB, content TEXT)"
         )
 
+        # We update table metadata
         self.table_metadata[table_name] = TableMetadata
+        self.update_table_metadata(table_config)
+        self.create_index(
+            table_config.table_name,
+            table_config.index_type,
+            table_config.normalize,
+            table_config.allow_index_updates,
+            table_config.dimension,
+        )
 
+        with self.conn:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "SELECT * FROM table_metadata WHERE table_name = ?", (table_name,)
+            )
+            row = cursor.fetchone()
+            self.conn.commit()
+
+    def update_table_metadata(self, table_config: TableMetadata):
+        query = """
+        INSERT INTO table_metadata (
+            table_name, dimension, index_type, normalize, allow_index_updates, is_active, use_uuid
+        ) VALUES (
+            :table_name, :dimension, :index_type, :normalize, :allow_index_updates, :is_index_active, :use_uuid
+        )
+        """
+        with self.conn:
+            cursor = self.conn.cursor()
+            cursor.execute(query, table_config.dict())
+            self.conn.commit()
         return
 
     def create_table(self, table_name, dimension, use_uuid):

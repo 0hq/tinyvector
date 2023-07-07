@@ -56,6 +56,7 @@ class TableQueryResult(BaseModel):
 
 
 class TableMetadata(BaseModel):
+    table_name: str
     allow_index_updates: bool
     dimension: int
     index_type: IndexType
