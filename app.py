@@ -337,8 +337,8 @@ if __name__ == "__main__":
     app.logger.info("Starting server...")
     db = DB("cache/database.db")
     api.register(app)
-    PORT = 3000
+    PORT = 5234
     app.logger.info(
-        "\nSuccesfully Generated Documentation :) \n\n- Redoc: http://localhost:3000/apidoc/redoc \n- Swagger: http://localhost:3000/apidoc/swagger"
+        f"\nSuccesfully Generated Documentation :) \n\n- Redoc: http://localhost:{PORT}/apidoc/redoc \n- Swagger: http://localhost:{PORT}/apidoc/swagger"
     )
     app.run(host="0.0.0.0", port=PORT, debug=True)

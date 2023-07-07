@@ -58,7 +58,7 @@ class TableQueryResult(BaseModel):
 class TableMetadata(BaseModel):
     allow_index_updates: bool
     dimension: int
-    index_type: str
+    index_type: IndexType
     is_index_active: bool
     normalize: bool
     use_uuid: int
