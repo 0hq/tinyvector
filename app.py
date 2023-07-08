@@ -5,7 +5,7 @@ from functools import wraps
 import jwt
 import numpy as np
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, g
 from pydantic import BaseModel
 
 from database import DB
@@ -19,6 +19,7 @@ from models.db import (
     ItemInsertionBody,
     TableCreationBody,
     TableDeletionBody,
+    TableMetadata,
     TableQueryObject,
     TableQueryResult,
 )
@@ -48,6 +49,19 @@ stream_handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 stream_handler.setFormatter(formatter)
 app.logger.addHandler(stream_handler)
+
+DATABASE_PATH = os.environ.get("DATABASE_PATH", "cache/database.db")
+
+
+def get_db():
+    if "db" not in g:
+        g.db = DB(DATABASE_PATH)
+    return g.db
+
+
+@app.teardown_appcontext
+def close_db(exception):
+    db = g.pop("db", None)
 
 
 def token_required(f):
@@ -113,9 +127,9 @@ def info():
     Route to get information about the database.
     """
     try:
-        info = db.info()
+        info = get_db().info()
         app.logger.info("Info retrieved successfully")
-        return DatabaseInfo(**info), 200
+        return info, 200
     except Exception as e:
         app.logger.error(f"Error while retrieving info: {str(e)}")
         return ErrorMessage(error=f"Error while retrieving info: {str(e)}"), 400
@@ -138,15 +152,15 @@ def create_table():
 
     data = request.get_json()
     body = TableCreationBody(**data)
-    table_name = body.table_name
-    dimension = body.dimension
-    use_uuid = body.use_uuid
     try:
-        db.create_table(table_name, dimension, use_uuid)
-        app.logger.info(f"Table {table_name} created successfully")
-        return SuccessMessage(status=f"Table {table_name} created successfully"), 200
+        get_db().create_table_and_index(body)
+        app.logger.info(f"Table {body.table_name} created successfully")
+        return (
+            SuccessMessage(status=f"Table {body.table_name} created successfully"),
+            200,
+        )
     except Exception as e:
-        app.logger.error(f"Error while creating table {table_name}: {str(e)}")
+        app.logger.error(f"Error while creating table {body.table_name}: {str(e)}")
         return ErrorMessage(error=str(e)), 400
 
 
@@ -167,7 +181,7 @@ def delete_table():
     body = TableDeletionBody(**data)
     table_name = body.table_name
     try:
-        db.delete_table(table_name)
+        get_db().delete_table(table_name)
         app.logger.info(f"Table {table_name} deleted successfully")
         return SuccessMessage(status=f"Table {table_name} deleted successfully"), 200
     except Exception as e:
@@ -204,7 +218,7 @@ def insert():
     defer_index_update = body.defer_index_update
     try:
         embedding = np.array(embedding)
-        db.insert(table_name, id, embedding, content, defer_index_update)
+        get_db().insert(table_name, id, embedding, content, defer_index_update)
         app.logger.info(f"Item {id} inserted successfully into table {table_name}")
         return (
             SuccessMessage(
@@ -241,7 +255,7 @@ def query():
     k = body.k
     try:
         query = np.array(query)
-        items = db.query(table_name, query, k)
+        items = get_db().query(table_name, query, k)
         app.logger.info(f"Query performed successfully on table {table_name}")
         print(items)
         return TableQueryResult(items=items), 200
@@ -283,7 +297,7 @@ def create_index():
     n_components = body.n_components
 
     try:
-        db.create_index(
+        get_db().create_index(
             table_name, index_type, normalize, allow_index_updates, n_components
         )
         app.logger.info(f"Index created successfully on table {table_name}")
@@ -317,7 +331,7 @@ def delete_index():
     body = IndexDeletionBody(**request.get_json())
     table_name = body.table_name
     try:
-        db.delete_index(table_name)
+        get_db().delete_index(table_name)
         app.logger.info(f"Index deleted successfully on table {table_name}")
         return (
             SuccessMessage(status=f"Index deleted successfully on table {table_name}"),
@@ -335,7 +349,7 @@ def delete_index():
 
 if __name__ == "__main__":
     app.logger.info("Starting server...")
-    db = DB("cache/database.db")
+
     api.register(app)
     PORT = 5234
     app.logger.info(

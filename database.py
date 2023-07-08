@@ -1,4 +1,5 @@
 import sqlite3
+from typing import cast
 import uuid
 from abc import ABC, abstractmethod
 
@@ -6,7 +7,7 @@ import numpy as np
 import psutil
 from sklearn.decomposition import PCA
 
-from models.db import TableMetadata
+from models.db import DatabaseInfo, TableCreationBody, TableMetadata
 
 
 def norm_np(datum):
@@ -113,6 +114,9 @@ class BruteForceIndexImmutable(AbstractIndex):
             )
 
         query_normalized = norm_np(query) if self.normalize else query
+        import pdb
+
+        pdb.set_trace()
         scores = query_normalized @ self.embeddings.T
         arg_k = k if k < len(scores) else len(scores) - 1
         partitioned_indices = np.argpartition(-scores, kth=arg_k)[:k]
@@ -239,23 +243,29 @@ class DB:
     Database class for managing tables and indexes.
     """
 
-    def __init__(self, path):
+    def __init__(self, path, debug=False):
         self.conn = sqlite3.connect(path, check_same_thread=False)
         self.c = self.conn.cursor()
         self.table_metadata = {}
         self.indexes = {}
+
+        self.path = path
+        self.debug = debug
         self._init_db()
 
     def info(self):
         """
         Get information about all tables in the database.
         """
-        info = {}
-        info["tables"] = self.table_metadata
-        info["indexes"] = [str(index) for index in self.indexes.values()]
-        info["num_tables"] = len(self.table_metadata)
-        info["num_indexes"] = len(self.indexes)
-        return info
+
+        res = DatabaseInfo(
+            num_indexes=len(self.indexes),
+            num_tables=len(self.table_metadata),
+            tables={},
+            indexes=[str(index) for index in self.indexes.values()],
+        )
+        res.tables = self.table_metadata
+        return res
 
     def _init_db(self):
         """
@@ -274,7 +284,8 @@ class DB:
         """
         self.table_metadata = {}
         select_query = "SELECT * FROM table_metadata"
-        for row in self.c.execute(select_query):
+
+        for row in self.c.execute(select_query).fetchall():
             (
                 table_name,
                 dimension,
@@ -284,15 +295,15 @@ class DB:
                 is_index_active,
                 use_uuid,
             ) = row
-            self.table_metadata[table_name] = {
-                "table_name": table_name,
-                "dimension": dimension,
-                "index_type": index_type,
-                "normalize": normalize,
-                "allow_index_updates": allow_index_updates,
-                "is_index_active": is_index_active,
-                "use_uuid": use_uuid,
-            }
+            self.table_metadata[table_name] = TableMetadata(
+                table_name=table_name,
+                dimension=dimension,
+                index_type=index_type,
+                normalize=normalize,
+                allow_index_updates=allow_index_updates,
+                is_index_active=is_index_active,
+                use_uuid=use_uuid,
+            )
 
             if is_index_active:
                 try:
@@ -344,24 +355,14 @@ class DB:
                 f"Index for table {table_name} already exists. Delete the index first if you want to rebuild it."
             )
 
-        if allow_index_updates is None:
-            allow_index_updates = True if index_type == "brute_force" else False
-        if allow_index_updates is True and index_type == "pca":
-            raise ValueError(
-                "PCA index does not support updates. Please set allow_index_updates=False."
-            )
-
-        dimension = self.table_metadata[table_name]["dimension"]
+        dimension = self.table_metadata[table_name].dimension
         if index_type == "brute_force":
             ids, embeddings = get_data(f"SELECT * FROM {table_name}")
-            print("Executed")
-            print(ids, embeddings)
             if allow_index_updates:
                 self.indexes[table_name] = BruteForceIndexMutable(
                     table_name, dimension, normalize, embeddings, ids
                 )
             else:
-                print("---This was executed---")
                 self.indexes[table_name] = BruteForceIndexImmutable(
                     table_name, dimension, normalize, embeddings, ids
                 )
@@ -376,17 +377,17 @@ class DB:
             raise ValueError(f"Unknown index type {index_type}")
 
         # Update metadata
-        self.table_metadata[table_name]["index_type"] = index_type
-        self.table_metadata[table_name]["is_index_active"] = True
-        self.table_metadata[table_name]["allow_index_updates"] = allow_index_updates
-        self.table_metadata[table_name]["normalize"] = normalize
+        self.table_metadata[table_name].index_type = index_type
+        self.table_metadata[table_name].is_index_active = True
+        self.table_metadata[table_name].allow_index_updates = allow_index_updates
+        self.table_metadata[table_name].normalize = normalize
         self.c.execute(
             "UPDATE table_metadata SET index_type = ?, is_active = ?, allow_index_updates = ?, normalize = ? WHERE table_name = ?",
             (index_type, True, allow_index_updates, normalize, table_name),
         )
         self.conn.commit()
 
-    def create_table_and_index(self, table_config: TableMetadata):
+    def create_table_and_index(self, table_config: TableCreationBody):
         """
         Creates a new table and index in the database
         """
@@ -404,7 +405,9 @@ class DB:
 
         # We update table metadata
         self.table_metadata[table_name] = TableMetadata
+
         self.update_table_metadata(table_config)
+
         self.create_index(
             table_config.table_name,
             table_config.index_type,
@@ -421,18 +424,27 @@ class DB:
             row = cursor.fetchone()
             self.conn.commit()
 
-    def update_table_metadata(self, table_config: TableMetadata):
+    def update_table_metadata(self, table_config: TableCreationBody):
         query = """
         INSERT INTO table_metadata (
             table_name, dimension, index_type, normalize, allow_index_updates, is_active, use_uuid
-        ) VALUES (
-            :table_name, :dimension, :index_type, :normalize, :allow_index_updates, :is_index_active, :use_uuid
-        )
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
         """
+        values = (
+            table_config.table_name,
+            table_config.dimension,
+            table_config.index_type,
+            table_config.normalize,
+            table_config.allow_index_updates,
+            table_config.is_index_active,
+            table_config.use_uuid,
+        )
         with self.conn:
             cursor = self.conn.cursor()
-            cursor.execute(query, table_config.dict())
+            cursor.execute(query, values)
             self.conn.commit()
+
+        self.table_metadata[table_config.table_name] = table_config
         return
 
     def create_table(self, table_name, dimension, use_uuid):
@@ -497,11 +509,17 @@ class DB:
         if psutil.virtual_memory().available < 0.1 * psutil.virtual_memory().total:
             raise MemoryError("System is running out of memory")
 
-        if self.table_metadata[table_name]["use_uuid"] and id is not None:
+        # First validate that table exists
+        if table_name not in self.table_metadata:
+            raise ValueError(f"Table {table_name} does not exist")
+
+        table_config: TableMetadata = self.table_metadata[table_name]
+
+        if table_config.use_uuid and id is not None:
             raise ValueError(
                 "This table uses auto-generated UUIDs. Do not provide an ID."
             )
-        elif self.table_metadata[table_name]["use_uuid"]:
+        elif table_config.use_uuid:
             id = str(uuid.uuid4())  # Generate a unique ID using the uuid library.
         elif id is None:
             raise ValueError("This table uses custom IDs. Please provide an ID.")
@@ -511,8 +529,8 @@ class DB:
         self.conn.commit()
 
         if (
-            self.table_metadata[table_name]["is_index_active"] is True
-            and self.table_metadata[table_name]["allow_index_updates"] is True
+            table_config.is_index_active is True
+            and table_config.allow_index_updates is True
             and defer_index_update is False
         ):
             self.indexes[table_name].add_vector(id, embedding)
@@ -523,10 +541,14 @@ class DB:
         """
         if self.table_metadata.get(table_name) is None:
             raise ValueError(f"Table {table_name} does not exist")
-        if self.table_metadata[table_name]["is_index_active"] is False:
+
+        table_config = self.table_metadata[table_name]
+        table_config = cast(TableMetadata, table_config)
+
+        if table_config.is_index_active is False:
             raise ValueError(f"Index for table {table_name} does not exist")
 
-        items = self.indexes[table_name].get_similarity(query, k)
+        items = self.indexes[table_name].get_similarity(np.array(query), k)
 
         # Get content from DB in a single query
         ids = [item["id"] for item in items]
