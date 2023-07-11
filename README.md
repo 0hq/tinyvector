@@ -8,7 +8,7 @@
     No, you don't need a vector database. You need tinyvector.
 </p>
 <p align="center">
-    <i>In pre-release: prod-ready by late-July.</i> <b><i>Still in development!</i></b> <br />
+    <i>In pre-release: prod-ready by late-July.</i> <b><i>Still in development, not ready!</i></b> <br />
 </p>
 
 
