@@ -1,12 +1,16 @@
 from enum import Enum
 from typing import Dict, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, validator, model_validator
 
 
 class TableCreationBody(BaseModel):
     table_name: str
     dimension: int
     use_uuid: bool = False
+    normalize: bool = True
+    index_type: str = "brute_force"
+    allow_index_updates: bool = True
+    is_index_active: bool = True
 
 
 class TableDeletionBody(BaseModel):
@@ -46,7 +50,7 @@ class TableQueryObject(BaseModel):
 
 class TableQueryResultInstance(BaseModel):
     content: str
-    embedding: list[int]
+    embedding: list[float] | list[int]
     id: str
     score: float
 
@@ -56,20 +60,24 @@ class TableQueryResult(BaseModel):
 
 
 class TableMetadata(BaseModel):
+    table_name: str
     allow_index_updates: bool
     dimension: int
-    index_type: str
+    index_type: IndexType
     is_index_active: bool
     normalize: bool
-    use_uuid: int
+    use_uuid: bool
 
-
-class TableName(str):
-    pass
+    @model_validator(mode="after")
+    def check_index_update_and_type(cls, m: "TableMetadata"):
+        if m.allow_index_updates and m.index_type == "pca":
+            raise ValueError(
+                "PCA index does not support updates. Please set allow_index_updates=False."
+            )
 
 
 class DatabaseInfo(BaseModel):
     indexes: list[str]
     num_indexes: int
     num_tables: int
-    tables: Dict[TableName, TableMetadata]
+    tables: Dict[str, TableMetadata]
