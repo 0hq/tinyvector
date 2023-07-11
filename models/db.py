@@ -1,6 +1,7 @@
 from enum import Enum
 from typing import Dict, Optional
-from pydantic import BaseModel, validator, model_validator
+
+from pydantic import BaseModel, validator
 
 
 class TableCreationBody(BaseModel):
@@ -68,7 +69,7 @@ class TableMetadata(BaseModel):
     normalize: bool
     use_uuid: bool
 
-    @model_validator(mode="after")
+    @validator('*', check_fields=False)
     def check_index_update_and_type(cls, m: "TableMetadata"):
         if m.allow_index_updates and m.index_type == "pca":
             raise ValueError(

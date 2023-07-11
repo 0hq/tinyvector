@@ -5,27 +5,16 @@ from functools import wraps
 import jwt
 import numpy as np
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request, g
+from flask import Flask, g, jsonify, request
+from flask_pydantic_spec import FlaskPydanticSpec, Response
 from pydantic import BaseModel
 
 from database import DB
-from flask_pydantic_spec import FlaskPydanticSpec
-from flask_pydantic_spec import Response
-
-from models.db import (
-    DatabaseInfo,
-    IndexCreationBody,
-    IndexDeletionBody,
-    ItemInsertionBody,
-    TableCreationBody,
-    TableDeletionBody,
-    TableMetadata,
-    TableQueryObject,
-    TableQueryResult,
-)
+from models.db import (DatabaseInfo, IndexCreationBody, IndexDeletionBody,
+                       ItemInsertionBody, TableCreationBody, TableDeletionBody,
+                       TableMetadata, TableQueryObject, TableQueryResult)
 from models.response import ErrorMessage
-from utils.pydantic import pydantic_to_dict
-
+from utils.util_pydantic import pydantic_to_dict
 
 logging.basicConfig(
     filename="logs/app.log",
