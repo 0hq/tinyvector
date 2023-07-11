@@ -70,11 +70,13 @@ class TableMetadata(BaseModel):
     use_uuid: bool
 
     @validator('*', check_fields=False)
-    def check_index_update_and_type(cls, m: "TableMetadata"):
-        if m.allow_index_updates and m.index_type == "pca":
-            raise ValueError(
-                "PCA index does not support updates. Please set allow_index_updates=False."
-            )
+    def check_index_update_and_type(cls, value, values, config, field):
+        if 'allow_index_updates' in values and 'index_type' in values:
+            if values['allow_index_updates'] and values['index_type'] == "pca":
+                raise ValueError(
+                    "PCA index does not support updates. Please set allow_index_updates=False."
+                )
+        return value
 
 
 class DatabaseInfo(BaseModel):

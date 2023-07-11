@@ -1,21 +1,17 @@
 import json
 import os
-from unittest.mock import patch
-import jwt
+import random
 import time
+from unittest.mock import patch
+
+import jwt as pyjwt
 import pytest
+
 from app import SuccessMessage, app
 from database import DB
-from models.db import (
-    DatabaseInfo,
-    ItemInsertionBody,
-    TableCreationBody,
-    TableDeletionBody,
-    TableMetadata,
-    TableQueryObject,
-)
+from models.db import (DatabaseInfo, ItemInsertionBody, TableCreationBody,
+                       TableDeletionBody, TableMetadata, TableQueryObject)
 from models.response import ErrorMessage
-import random
 
 test_table = "test_table"
 jwt_secret = "testing_config"
@@ -33,7 +29,7 @@ new_table = TableMetadata(
 
 def generate_client(app):
     os.environ["JWT_SECRET"] = jwt_secret
-    encoded_jwt = jwt.encode(
+    encoded_jwt = pyjwt.encode(
         {"payload": "random payload"}, jwt_secret, algorithm="HS256"
     )
     headers = {"Authorization": encoded_jwt}
@@ -73,7 +69,7 @@ def test_token_authentication(create_test_db, mocker):
         assert response.status_code == 401
         assert data == {"message": "Token is invalid!"}
 
-        expired_jwt = jwt.encode(
+        expired_jwt = pyjwt.encode(
             {"payload": "random payload", "exp": int(time.time()) - 10},
             jwt_secret,
             algorithm="HS256",
@@ -109,7 +105,7 @@ def test_info(create_test_db, mocker):
         expected_response.tables[test_table] = new_table
 
         # Replace the expected data with the actual data you expect from DB.info()
-        assert data == expected_response.model_dump()
+        assert data == expected_response.dict()
 
 
 def test_status_endpoint(create_test_db, mocker):
@@ -129,7 +125,7 @@ def test_status_endpoint(create_test_db, mocker):
         assert response.status_code == 200
 
         # Replace the expected data with the actual data you expect from DB.info()
-        assert data == SuccessMessage(status="success").model_dump()
+        assert data == SuccessMessage(status="success").dict()
 
 
 def test_create_endpoint(create_test_db, mocker):
@@ -154,7 +150,7 @@ def test_create_endpoint(create_test_db, mocker):
         )
 
         response = client.post(
-            "/create_table", json=table_2.model_dump(), headers=headers
+            "/create_table", json=table_2.dict(), headers=headers
         )
 
         data = json.loads(response.data)
@@ -164,7 +160,7 @@ def test_create_endpoint(create_test_db, mocker):
             data
             == SuccessMessage(
                 status=f"Table {table_2.table_name} created successfully"
-            ).model_dump()
+            ).dict()
         )
 
         response = client.get("/info", headers=headers)
@@ -173,13 +169,13 @@ def test_create_endpoint(create_test_db, mocker):
         assert response.status_code == 200
         assert data["num_tables"] == 2
         assert data["num_indexes"] == 2
-        assert data["tables"][table_2.table_name] == table_2.model_dump()
+        assert data["tables"][table_2.table_name] == table_2.dict()
 
         # We then create a new db instance which loads metadata from scratch based on sqlite3 database and validate that it has the same data
 
         new_db = DB(path=db_path, debug=True)
         new_instance_data = new_db.info()
-        assert new_instance_data.model_dump() == data
+        assert new_instance_data.dict() == data
 
 
 def test_delete_endpoint(create_test_db, mocker):
@@ -206,7 +202,7 @@ def test_delete_endpoint(create_test_db, mocker):
         )
 
         response = client.delete(
-            "/delete_table", json=body.model_dump(), headers=headers
+            "/delete_table", json=body.dict(), headers=headers
         )
         data = json.loads(response.data)
         assert response.status_code == 400
@@ -214,7 +210,7 @@ def test_delete_endpoint(create_test_db, mocker):
             data
             == ErrorMessage(
                 status=f"Error while deleting table fake_table: Table fake_table does not exist"
-            ).model_dump()
+            ).dict()
         )
 
         # Try to delete a valid table
@@ -222,7 +218,7 @@ def test_delete_endpoint(create_test_db, mocker):
             table_name="table_testing_2",
         )
         response = client.delete(
-            "/delete_table", json=body.model_dump(), headers=headers
+            "/delete_table", json=body.dict(), headers=headers
         )
         data = json.loads(response.data)
         assert response.status_code == 200
@@ -230,7 +226,7 @@ def test_delete_endpoint(create_test_db, mocker):
             data
             == SuccessMessage(
                 status=f"Table {body.table_name} deleted successfully"
-            ).model_dump()
+            ).dict()
         )
 
         # Validate that the table has been deleted
@@ -245,7 +241,7 @@ def test_delete_endpoint(create_test_db, mocker):
 
         new_db = DB(path=db_path, debug=True)
         new_instance_data = new_db.info()
-        assert new_instance_data.model_dump() == data
+        assert new_instance_data.dict() == data
 
 
 def test_insert_endpoint(create_test_db, mocker):
@@ -267,7 +263,7 @@ def test_insert_endpoint(create_test_db, mocker):
                 content=f"Item {i} content",
                 defer_index_update=False,
             )
-            response = client.post("/insert", json=item.model_dump(), headers=headers)
+            response = client.post("/insert", json=item.dict(), headers=headers)
             data = json.loads(response.data)
             assert response.status_code == 200
             assert (
@@ -279,7 +275,7 @@ def test_insert_endpoint(create_test_db, mocker):
         body = TableQueryObject(
             table_name=test_table, query=[0 for i in range(42)], k=values
         )
-        response = client.post("/query", json=body.model_dump(), headers=headers)
+        response = client.post("/query", json=body.dict(), headers=headers)
         data = json.loads(response.data)
 
         assert response.status_code == 200

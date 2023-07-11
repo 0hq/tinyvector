@@ -1,8 +1,10 @@
+import os
 import sqlite3
+
+import pytest
+
 from database import DB
 from models.db import DatabaseInfo, TableCreationBody, TableMetadata
-import pytest
-import os
 
 
 @pytest.fixture
@@ -37,7 +39,7 @@ def test_loads_correct_metadata_on_startup(create_db):
     info = test_db_2.info()
     print(info)
     assert table_name in info.tables, f"Table {table_name} not found"
-    assert TableMetadata(**db_config.model_dump()) == info.tables[table_name]
+    assert TableMetadata(**db_config.dict()) == info.tables[table_name]
     assert info.num_tables == 1, "Number of tables should be 1"
 
 
