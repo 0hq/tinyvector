@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from models.db import TableMetadata
+from tinyvector.types.model_db import TableMetadata
 
 
 def test_invalid_table_metadata():

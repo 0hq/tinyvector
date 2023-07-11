@@ -1,13 +1,13 @@
 import sqlite3
-from typing import cast
 import uuid
 from abc import ABC, abstractmethod
+from typing import cast
 
 import numpy as np
 import psutil
 from sklearn.decomposition import PCA
 
-from models.db import DatabaseInfo, TableCreationBody, TableMetadata
+from .types.model_db import DatabaseInfo, TableCreationBody, TableMetadata
 
 
 def norm_np(datum):

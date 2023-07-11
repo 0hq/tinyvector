@@ -3,8 +3,9 @@ import sqlite3
 
 import pytest
 
-from database import DB
-from models.db import DatabaseInfo, TableCreationBody, TableMetadata
+from tinyvector.database import DB
+from tinyvector.types.model_db import (DatabaseInfo, TableCreationBody,
+                                       TableMetadata)
 
 
 @pytest.fixture

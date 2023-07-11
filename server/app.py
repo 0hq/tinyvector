@@ -9,12 +9,15 @@ from flask import Flask, g, jsonify, request
 from flask_pydantic_spec import FlaskPydanticSpec, Response
 from pydantic import BaseModel
 
-from database import DB
-from models.db import (DatabaseInfo, IndexCreationBody, IndexDeletionBody,
-                       ItemInsertionBody, TableCreationBody, TableDeletionBody,
-                       TableMetadata, TableQueryObject, TableQueryResult)
-from models.response import ErrorMessage
-from utils.util_pydantic import pydantic_to_dict
+from tinyvector import DB
+from tinyvector.types.model_db import (DatabaseInfo, IndexCreationBody,
+                                       IndexDeletionBody, ItemInsertionBody,
+                                       TableCreationBody, TableDeletionBody,
+                                       TableMetadata, TableQueryObject,
+                                       TableQueryResult)
+
+from .types.model_response import ErrorMessage
+from .utils.util_pydantic import pydantic_to_dict
 
 logging.basicConfig(
     filename="logs/app.log",
@@ -50,7 +53,7 @@ def get_db():
 
 @app.teardown_appcontext
 def close_db(exception):
-    db = g.pop("db", None)
+    _ = g.pop("db", None)
 
 
 def token_required(f):
@@ -338,10 +341,10 @@ def delete_index():
 
 if __name__ == "__main__":
     app.logger.info("Starting server...")
-
     api.register(app)
     PORT = 5234
     app.logger.info(
         f"\nSuccesfully Generated Documentation :) \n\n- Redoc: http://localhost:{PORT}/apidoc/redoc \n- Swagger: http://localhost:{PORT}/apidoc/swagger"
     )
     app.run(host="0.0.0.0", port=PORT, debug=True)
+    get_db()
