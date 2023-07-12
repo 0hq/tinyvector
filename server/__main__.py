@@ -7,10 +7,10 @@ import numpy as np
 from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request
 from flask_pydantic_spec import FlaskPydanticSpec, Response
-from models.model_response import ErrorMessage
 from pydantic import BaseModel
-from utils.util_pydantic import pydantic_to_dict
 
+from server.models.model_response import ErrorMessage
+from server.utils.util_pydantic import pydantic_to_dict
 from tinyvector import DB
 from tinyvector.types.model_db import (DatabaseInfo, IndexCreationBody,
                                        IndexDeletionBody, ItemInsertionBody,
@@ -18,8 +18,16 @@ from tinyvector.types.model_db import (DatabaseInfo, IndexCreationBody,
                                        TableMetadata, TableQueryObject,
                                        TableQueryResult)
 
+# if logs directory does not exist, create it
+if not os.path.exists("logs"):
+    os.makedirs("logs")
+
+# if cache directory does not exist, create it
+if not os.path.exists("cache"):
+    os.makedirs("cache")
+
 logging.basicConfig(
-    filename="logs/app.log",
+    filename="logs/server.log",
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(threadName)s : %(message)s",
 )

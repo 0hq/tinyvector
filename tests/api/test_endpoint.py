@@ -7,8 +7,8 @@ from unittest.mock import patch
 import jwt as pyjwt
 import pytest
 
-from server.app import SuccessMessage, app
-from server.types.model_response import ErrorMessage
+from server.__main__ import SuccessMessage, app
+from server.models.model_response import ErrorMessage
 from tinyvector.database import DB
 from tinyvector.types.model_db import (DatabaseInfo, ItemInsertionBody,
                                        TableCreationBody, TableDeletionBody,
@@ -53,7 +53,7 @@ def test_token_authentication(create_test_db, mocker):
     This validates that the info endpoint correctly captures the state of the DB at a specific snapshot in time.
     """
     # Mock the DB object
-    mocker.patch("server.app.get_db", return_value=create_test_db)
+    mocker.patch("server.__main__.get_db", return_value=create_test_db)
 
     test_client, headers = generate_client(app)
 
@@ -86,7 +86,7 @@ def test_info(create_test_db, mocker):
     This validates that the info endpoint correctly captures the state of the DB at a specific snapshot in time.
     """
     # Mock the DB object
-    mocker.patch("server.app.get_db", return_value=create_test_db)
+    mocker.patch("server.__main__.get_db", return_value=create_test_db)
 
     test_client, headers = generate_client(app)
 
@@ -114,7 +114,7 @@ def test_status_endpoint(create_test_db, mocker):
     This validates that the info endpoint correctly captures the state of the DB at a specific snapshot in time.
     """
     # Mock the DB object
-    mocker.patch("server.app.get_db", return_value=create_test_db)
+    mocker.patch("server.__main__.get_db", return_value=create_test_db)
 
     test_client, headers = generate_client(app)
 
@@ -134,7 +134,7 @@ def test_create_endpoint(create_test_db, mocker):
     This validates that we can succesfully create a table object and have the database be updated and populated with the new table.
     """
     # Mock the DB object
-    mocker.patch("server.app.get_db", return_value=create_test_db)
+    mocker.patch("server.__main__.get_db", return_value=create_test_db)
 
     test_client, headers = generate_client(app)
 
@@ -184,7 +184,7 @@ def test_delete_endpoint(create_test_db, mocker):
     This validates the delete endpoint
     """
     # Mock the DB object
-    mocker.patch("server.app.get_db", return_value=create_test_db)
+    mocker.patch("server.__main__.get_db", return_value=create_test_db)
 
     test_client, headers = generate_client(app)
 
@@ -250,7 +250,7 @@ def test_insert_endpoint(create_test_db, mocker):
     This validates the delete endpoint
     """
     # Mock the DB object
-    mocker.patch("server.app.get_db", return_value=create_test_db)
+    mocker.patch("server.__main__.get_db", return_value=create_test_db)
 
     test_client, headers = generate_client(app)
 

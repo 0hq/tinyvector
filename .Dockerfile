@@ -20,4 +20,4 @@ EXPOSE 5000
 ENV JWT_SECRET=$(cat jwt_secret.txt)
 
 # Run gunicorn when the container launches
-CMD ["gunicorn", "-w", "4", "app:app"]
+CMD ["gunicorn", "-w", "4", "server.__main__:app"]
