@@ -10,7 +10,6 @@ setup(
     packages=find_packages(include=['core', 'core.*']),
     install_requires=[
         'numpy',
-        'sqlite3',
         'uuid',
         'pydantic',
         'psutil',
