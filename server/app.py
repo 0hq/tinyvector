@@ -7,7 +7,9 @@ import numpy as np
 from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request
 from flask_pydantic_spec import FlaskPydanticSpec, Response
+from models.model_response import ErrorMessage
 from pydantic import BaseModel
+from utils.util_pydantic import pydantic_to_dict
 
 from tinyvector import DB
 from tinyvector.types.model_db import (DatabaseInfo, IndexCreationBody,
@@ -15,9 +17,6 @@ from tinyvector.types.model_db import (DatabaseInfo, IndexCreationBody,
                                        TableCreationBody, TableDeletionBody,
                                        TableMetadata, TableQueryObject,
                                        TableQueryResult)
-
-from .types.model_response import ErrorMessage
-from .utils.util_pydantic import pydantic_to_dict
 
 logging.basicConfig(
     filename="logs/app.log",
