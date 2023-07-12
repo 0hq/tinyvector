@@ -38,11 +38,11 @@ In most cases, most vector databases are overkill for something simple like:
 ## Usage
 
 ```
-Run the server manually:
+// Run the server manually:
 pip install -r requirements
 python -m server
 
-Run tests:
+// Run tests:
 pip install pytest pytest-mock
 pytest
 ```
