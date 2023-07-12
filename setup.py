@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name='tinyvector',
-    version='0.1.0',
+    version='0.1.1',
     author='Will DePue',
     author_email='will@depue.net',
     license='MIT',
