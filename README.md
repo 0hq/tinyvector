@@ -35,6 +35,18 @@ In most cases, most vector databases are overkill for something simple like:
 2. Doing search for your website or store. Unless you're selling 1,000,000 items, you don't need Pinecone.
 3. Performing complex search queries on a very large database. Even if you have 2 million embeddings, this might still be the better option due to vector databases struggling with complex filtering. Tinyvector doesn't support metadata/filtering just yet, but it's very easy for you to add that yourself.
 
+## Usage
+
+```
+Run the server manually:
+pip install -r requirements
+python -m server
+
+Run tests:
+pip install pytest pytest-mock
+pytest
+```
+
 ## Embeddings?
 
 What are embeddings?
