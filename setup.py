@@ -13,7 +13,6 @@ setup(
     packages=find_packages(include=['core', 'core.*']),
     install_requires=[
         'numpy',
-        'uuid',
         'pydantic',
         'psutil',
         'scikit-learn',
